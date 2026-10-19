@@ -51,7 +51,8 @@ export function slugFor(url: string): string {
   const extra = [...parsed.searchParams.entries()]
     .filter(([, value]) => value !== '')
     .map(([key, value]) => `${key}-${value}`);
-  return [base, ...extra].join('-').replace(/[^a-zA-Z0-9-]/g, '');
+  // 保留中文：`/api/v1/council?county=臺北市` → `council-county-臺北市`（快照檔名就是這個）
+  return [base, ...extra].join('-').replace(/[\/:*?"<>|\s]/g, '');
 }
 
 export interface RequestOptions {

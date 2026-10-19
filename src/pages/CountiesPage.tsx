@@ -4,8 +4,6 @@ import type { CountiesResponse, CountyElection, CountyElectionKey, CountyItem, C
 import { EmptyState, ErrorState, LoadingState } from '../components/DataStates';
 import { useApi } from '../hooks/useApi';
 import { useParam } from '../hooks/useParam';
-import { pathFor } from '../hooks/useRoute';
-import { RouteLink } from '../components/RouteLink';
 import { ChoroplethMap } from '../components/ChoroplethMap';
 import { LegislatorVotes } from '../components/LegislatorVotes';
 import { SplitTicket } from '../components/SplitTicket';
@@ -13,6 +11,7 @@ import { Demographics } from '../components/Demographics';
 import { PopulationTrend } from '../components/PopulationTrend';
 import { TownMap } from '../components/TownMap';
 import { VoteTrends } from '../components/VoteTrends';
+import { CouncilSeats } from '../components/CouncilSeats';
 import { colorAt, type ScaleName } from '../lib/colorScales';
 import { downloadCsv } from '../lib/csv';
 import { partyStyle } from '../lib/parties';
@@ -255,17 +254,8 @@ function CountyDetail({ county, data, councilCounties, onOpenId, onNavigate }: {
   return (
     <section className="panel county-detail" aria-label={`${county.county}詳細資料`}>
       <h2>{county.county}</h2>
-      {councilCounties.includes(county.county) ? (
-        <p>
-          <RouteLink href={pathFor('council', { county: county.county })} onNavigate={onNavigate}>
-            {county.county}議員選舉與席次 →
-          </RouteLink>
-          　
-          <RouteLink href={pathFor('councilactivity', { county: county.county })} onNavigate={onNavigate}>
-            議員近期動態 →
-          </RouteLink>
-        </p>
-      ) : null}
+      {/* 獨立站沒有「議員」那一頁，所以席次直接攤在這裡（只有六都有資料） */}
+      {councilCounties.includes(county.county) ? <CouncilSeats county={county.county} /> : null}
       <div className="stat-row">
         <div className="stat-tile">
           <b className="stat-value">{num(county.population)}</b>

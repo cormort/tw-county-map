@@ -1820,3 +1820,22 @@ main:has(.fb-wall) { max-width: min(1840px, 96vw); }
   /* 權重要贏過上面的 `.process-rail > li { display: flex }`，否則收不起來 */
   .process-rail > li.process-context { display: none; }
 }
+
+/* ---------- 縣市明細：議員選舉與席次（獨立站新增） ---------- */
+.council-seats { margin-top: 14px; border-top: 1px solid var(--rule-soft); padding-top: 12px; }
+.council-seats-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.council-seats-head h3 { margin: 0; font-size: var(--fs-md); }
+.council-seats .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 10px; }
+.council-seats .chip-row button {
+  border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+  border-radius: 999px; padding: 4px 10px; font-size: var(--fs-sm); cursor: pointer;
+}
+.council-seats .chip-row button[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); font-weight: 600; }
+.council-seats .table-scroll { margin-top: 10px; }
+.council-seats caption { text-align: left; padding: 4px 0; font-size: var(--fs-sm); }
+.council-seats .seat-bar {
+  display: inline-block; height: 8px; border-radius: 2px; margin-right: 8px;
+  background: var(--accent-line); vertical-align: middle; max-width: 90px;
+}
+.council-seats .small { font-size: var(--fs-sm); margin: 8px 0 0; }
+.council-seats .stat-row { margin-top: 10px; }

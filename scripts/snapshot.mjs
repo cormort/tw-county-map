@@ -6,8 +6,9 @@
  *   node scripts/snapshot.mjs                     # 預設打 http://127.0.0.1:8787
  *   API=http://127.0.0.1:8787 node scripts/snapshot.mjs
  *
- * 只抓「縣市地圖」這一頁真的會用到的端點；split-ticket 依年份各存一份，
- * 因為那一頁可以切年份（沒有年份的那一份是預設值）。
+ * 只抓「縣市地圖」這一頁真的會用到的端點：
+ * - council：六都各一份（縣市明細的「議員選舉與席次」）
+ * - split-ticket：依年份各存一份（那一頁可以切年份；沒有年份的那一份是預設值）
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +24,8 @@ function slugFor(url) {
   const extra = [...parsed.searchParams.entries()]
     .filter(([, value]) => value !== '')
     .map(([key, value]) => `${key}-${value}`);
-  return [base, ...extra].join('-').replace(/[^a-zA-Z0-9-]/g, '');
+  // 保留中文：`/api/v1/council?county=臺北市` → `council-county-臺北市`（快照檔名就是這個）
+  return [base, ...extra].join('-').replace(/[\/:*?"<>|\s]/g, '');
 }
 
 const PATHS = [
@@ -48,6 +50,16 @@ const written = [];
 for (const path of PATHS) {
   const body = await get(path);
   const name = `${slugFor(`/api/v1${path}`)}.json`;
+  await writeFile(join(OUT, name), JSON.stringify(body));
+  written.push([name, JSON.stringify(body).length]);
+}
+
+// 議員席次：只有六都有資料，每個縣市各一份（/council?county=臺北市）
+const councilList = JSON.parse(await (await fetch(`${API}/api/v1/council`)).text());
+for (const county of councilList.counties ?? []) {
+  const path = `/council?county=${encodeURIComponent(county)}`;
+  const body = await get(path);
+  const name = `${slugFor(`/api/v1/council?county=${county}`)}.json`;
   await writeFile(join(OUT, name), JSON.stringify(body));
   written.push([name, JSON.stringify(body).length]);
 }

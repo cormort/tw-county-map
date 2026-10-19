@@ -7,7 +7,7 @@
 
 | 頁籤 | 內容 |
 | --- | --- |
-| 互動地圖 | 依指標上色（人口數、人口密度、投票率、得票率…），點縣市看右側明細 |
+| 互動地圖 | 依指標上色（人口數、人口密度、投票率、得票率…），點縣市看右側明細；**六都的明細另有議員選舉與席次**（席次、政黨席次與得票、各選舉區應選席次與最後一席、與上屆比較，可切換屆次） |
 | 鄉鎮地圖 | 鄉鎮市區層級的地圖 |
 | 得票趨勢 | 各黨歷屆得票率趨勢 |
 | 立委得票 | 各縣市立委候選人得票 |
@@ -36,8 +36,11 @@ API=http://127.0.0.1:8787 node scripts/snapshot.mjs   # 指定別的來源
 ```
 
 會寫出 `public/data/`：`counties.json`、`council-only-counties.json`、`legislator-votes.json`、`demographics.json`、
-`population-trend.json`、`town-map.json`、`split-ticket.json` 與每年一份 `split-ticket-year-YYYY.json`，
-以及記錄產生時間的 `_snapshot.json`（頁首會顯示）。
+`population-trend.json`、`town-map.json`、`split-ticket.json` 與每年一份 `split-ticket-year-YYYY.json`、
+六都各一份 `council-county-<縣市>.json`（議員席次），以及記錄產生時間的 `_snapshot.json`（頁首會顯示）。
+
+議員席次只有六都（臺北市、新北市、桃園市、臺中市、臺南市、高雄市）有建置資料，其餘縣市不顯示那個區塊。
+一屆動輒十幾個 0 席政黨，表格只列有席次的，其餘在下方用一句話帶過。
 
 `src/api/client.ts` 的 `slugFor()` 與 `scripts/snapshot.mjs` 的 `slugFor()` 是同一套規則：
 `/api/v1/split-ticket?year=2024` → `split-ticket-year-2024`。
@@ -46,7 +49,8 @@ API=http://127.0.0.1:8787 node scripts/snapshot.mjs   # 指定別的來源
 
 - 程式碼：`pages/CountiesPage.tsx`、`components/`（地圖、得票、人口、分裂投票…）、`lib/` 都是從觀測站複製過來的，
   改動其中一邊時要記得同步。
-- 這份 repo 沒有委員／議員的詳細頁，所以縣市明細裡的「議員選舉與席次」連結是空的（`pathFor()` 回 hash）。
+- 這份 repo 沒有委員／議員的個人詳細頁；縣市明細的議員席次是直接攤在頁面上的（`components/CouncilSeats.tsx`），
+  不是連到別的頁。
 
 ## 資料來源
 
