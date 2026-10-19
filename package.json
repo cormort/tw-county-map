@@ -1,0 +1,26 @@
+{
+  "name": "tw-county-map",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "台灣縣市地圖：人口、面積、選舉結果、立委與議員（靜態快照站）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "snapshot": "node scripts/snapshot.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.59.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.1"
+  }
+}

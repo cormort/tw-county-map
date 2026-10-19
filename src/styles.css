@@ -1,0 +1,1822 @@
+/*
+ * 立委觀測站：現代商務／SaaS 儀表板樣式。
+ * 原則：
+ *  - 顏色只代表黨籍（見 src/lib/parties.ts，以 --party 傳入）；
+ *    介面本身只用中性色 + accent，警示色（warn/error）只用在同步失敗、stale 資料。
+ *  - 召委用「形狀」（外框、召委標記）而不是顏色表示。
+ *  - 淺色 canvas + 白色卡片 + 1px 淡邊框 + 兩層柔和陰影 + 大圓角。
+ *  - 既有 CSS 變數名稱一律保留，只新增不刪除。
+ */
+:root {
+  /* ---- 既有變數（保留名稱，重新配色）---- */
+  --paper: #f5f7fa;
+  --surface: #ffffff;
+  --ink: #101828;
+  --ink-2: #344054;
+  --muted: #5b6472;
+  --rule: #e5e8ec;
+  --rule-soft: #eef1f5;
+  --seat-off: #dfe3e8;
+  --warn: #96570a;
+  --warn-bg: #fff8ec;
+  --error: #b42318;
+  --error-bg: #fef3f2;
+  /* 標題改用無襯線（變數名稱保留給既有引用） */
+  --serif: system-ui, -apple-system, 'Segoe UI', 'PingFang TC', 'Noto Sans TC',
+    'Microsoft JhengHei', 'Helvetica Neue', Arial, sans-serif;
+  --sans: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', system-ui, -apple-system,
+    'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --radius: 10px;
+  /* 字體大小倍率：由頁首「A−／A＋」調整（useFontScale），預設 1 */
+  --fs-scale: 1;
+  /* 型級（type scale）：整站只用這 9 級，避免 11/11.67/12.5/13/17/19 這種近似值互相干擾 */
+  --fs-2xs: calc(11px * var(--fs-scale));
+  --fs-xs: calc(12px * var(--fs-scale));
+  --fs-sm: calc(13px * var(--fs-scale));
+  --fs-md: calc(14px * var(--fs-scale));
+  --fs-base: calc(15px * var(--fs-scale));
+  --fs-lg: calc(16px * var(--fs-scale));
+  --fs-xl: calc(18px * var(--fs-scale));
+  --fs-2xl: calc(22px * var(--fs-scale));
+  --fs-3xl: calc(27px * var(--fs-scale));
+  /* 行高：標題緊、正文鬆 */
+  --lh-tight: 1.25;
+  --lh-snug: 1.45;
+  --lh-base: 1.65;
+
+  /* ---- 色階 ---- */
+  --canvas: #f5f7fa;
+  --surface-2: #f8fafc;
+  --line: var(--rule);
+  --line-soft: var(--rule-soft);
+
+  /* ---- accent ---- */
+  /* 卡片立體外框：深一階的灰邊＋底部實心深灰「底座」，只用中性色，不佔用任何黨籍色 */
+  --card-line: #c4cad3;
+  --card-base: 0 3px 0 #8a93a0, 0 6px 14px -6px rgba(16, 24, 40, 0.18);
+  --card-base-hover: 0 5px 0 #6b7480, 0 10px 20px -8px rgba(16, 24, 40, 0.22);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff4ff;
+  --accent-line: #c7d7fe;
+  --accent-ink: #1d4ed8;
+
+  /* ---- 語意色（文字 / 底色 / 邊框）---- */
+  --success: #067647;
+  --success-bg: #ecfdf3;
+  --success-line: #abefc6;
+  --warn-line: #f5d9a8;
+  --error-line: #fecdc9;
+
+  /* ---- radius ---- */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* ---- shadow ---- */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.08), 0 12px 24px -6px rgba(16, 24, 40, 0.12);
+
+  /* ---- 間距節奏 4 / 8 / 12 / 16 / 24 / 32 ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* ---- 動態 ---- */
+  --t-fast: 120ms ease;
+  --t-base: 160ms ease;
+  --t-slow: 180ms ease;
+
+  /* 黨籍色一律由 src/lib/parties.ts 以 inline style 覆寫；這裡只給保底值，避免未提供時整塊消失 */
+  --party: var(--muted);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font: var(--fs-base)/1.6 var(--sans);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent-ink); text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; text-decoration-color: currentColor; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+h1, h2, h3 {
+  font-family: var(--serif);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+h1 { font-size: var(--fs-3xl); line-height: 1.25; }
+h2 { font-size: var(--fs-xl); line-height: 1.35; margin-bottom: var(--space-3); }
+h3 { font-size: var(--fs-lg); }
+code { font-size: var(--fs-sm); }
+svg { flex: none; }
+.muted { color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- 按鈕 ---------- */
+button, a.button {
+  cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.3;
+  font-weight: 500;
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast),
+    box-shadow var(--t-fast);
+}
+a.button { text-decoration: none; font-size: var(--fs-md); }
+button svg, a.button svg { width: 16px; height: 16px; }
+a.button:hover, button:hover:not(:disabled) { background: var(--surface-2); border-color: #d3d9e0; }
+button:active:not(:disabled) { box-shadow: none; }
+button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+button[aria-pressed='true'], .primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+button[aria-pressed='true']:hover:not(:disabled), .primary:hover:not(:disabled) {
+  background: #1d2939;
+  border-color: #1d2939;
+}
+button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-ink);
+  box-shadow: none;
+}
+button.quiet:hover:not(:disabled) { background: var(--rule-soft); color: var(--ink); border-color: transparent; }
+.icon-button { padding: 6px; border-color: transparent; background: transparent; box-shadow: none; color: var(--ink-2); }
+.icon-button:hover:not(:disabled) { background: var(--rule-soft); border-color: transparent; }
+.icon-button[aria-pressed='true'] { background: transparent; border-color: transparent; box-shadow: none; }
+.active { color: var(--accent); fill: var(--accent); }
+.name-button, .link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 3px;
+}
+.link-button { color: var(--accent-ink); }
+.name-button:hover, .link-button:hover { background: none; border: 0; text-decoration-color: currentColor; color: var(--accent-ink); }
+.name-button { font-family: var(--serif); font-weight: 700; }
+.more { margin-top: var(--space-3); }
+select {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  padding: 7px 10px;
+  min-width: 0;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+select:hover { border-color: #d3d9e0; }
+
+/* ---------- 頁首 ---------- */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  /* 依內容寬度自動換行（字體放大時不能只靠固定斷點，否則在斷點以上的寬度先擠壞） */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-6);
+  padding: 10px max(20px, calc((100vw - 1360px) / 2));
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: saturate(180%) blur(8px);
+  border-bottom: 1px solid var(--rule);
+}
+.brand { display: grid; color: var(--ink); text-decoration: none; line-height: 1.2; gap: 1px; white-space: nowrap; }
+.brand b { font-family: var(--serif); font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.01em; }
+.brand small { color: var(--muted); font-size: var(--fs-xs); }
+header nav { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; }
+/* 頁內分類（機關／基金四類），樣子同頁首導覽 */
+/* align-items: center 不能省：預設的 stretch 會把每個頁籤拉成同一高度，
+   文字卻黏在頂端（390px 實測膠囊 40px、文字行盒 18px → 上留白 5px／下留白 17px，
+   看起來就是「選取的 tag 沒有垂直置中」）。改成 center 後頁籤各自縮到自然高度並置中。 */
+.subnav { display: flex; align-items: center; gap: var(--space-1); overflow-x: auto; padding-bottom: var(--space-2); border-bottom: 1px solid var(--rule); }
+header nav a, .subnav a {
+  /* inline-flex + align-items 置中：手機的觸控目標規則會用 min-height: 40px 撐高頁籤，
+     但 min-height 只把盒子變高、文字仍黏在頂端（390px 實測上留白 5px／下留白 17px，
+     看起來就是「選取的 tag 沒有垂直置中」）。改成 flex 置中後兩排都對齊。 */
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  text-decoration: none;
+  color: var(--ink-2);
+  border-radius: var(--radius-pill);
+  font-weight: 500;
+  white-space: nowrap; /* 中文不可逐字折行 */
+  transition: background var(--t-fast), color var(--t-fast);
+}
+header nav a:hover, .subnav a:hover { background: var(--rule-soft); color: var(--ink); }
+header nav a[aria-current='page'], .subnav a[aria-current='page'] { color: var(--accent-ink); background: var(--accent-soft); font-weight: 600; }
+/* 頁籤的圖示只在手機顯示（2026-10-11）。桌機那一條是「一行 9 個標籤」的緊湊配置，
+   高度與寬度都算過（768px 實測 706/728），加圖示會把算好的預算擠掉。 */
+.nav-icon { display: none; }
+.search { position: relative; flex: 1 1 220px; min-width: 200px; max-width: 420px; margin-left: auto; }
+.search > svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 16px; color: var(--muted); }
+.search input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  padding: 8px 34px 8px 34px;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
+}
+.search input:hover { border-color: #d3d9e0; }
+.search input:focus { background: var(--surface); border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.search-clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding: 4px; border: 0; background: transparent; color: var(--muted); box-shadow: none; border-radius: var(--radius-pill); }
+.search-clear:hover:not(:disabled) { background: var(--rule-soft); border-color: transparent; }
+.header-status { display: flex; align-items: center; gap: 4px; white-space: nowrap; margin-left: auto; }
+/* 手機用的短版狀態文字（相對時間）：預設隱藏，只在手機的 media query 裡顯示 */
+.date-short { display: none; }
+/* 手機的搜尋圖示按鈕：桌機的搜尋框直接顯示，所以這顆按鈕預設不存在 */
+.search-toggle, .magnifier-toggle { display: none; }
+/* 同步範圍下拉：貼在「更新資料」鈕左邊，選完右邊的鈕才會開始同步 */
+.sync-scope select { font: inherit; font-size: var(--fs-sm); padding: 4px 6px; max-width: 30ch; border: 1px solid var(--rule-soft); border-radius: 8px; background: var(--surface); color: var(--ink-2); }
+.sync-scope select:disabled { opacity: 0.6; }
+.sync-scope-list { margin-top: 12px; }
+.sync-scope-list h3 { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); margin: 0 0 6px; }
+.sync-pill { border-color: var(--rule); background: var(--surface); color: var(--muted); font-size: var(--fs-sm); box-shadow: none; border-radius: var(--radius-pill); padding: 5px 10px; }
+.sync-pill:hover:not(:disabled) { background: var(--rule-soft); border-color: transparent; }
+.sync-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.sync-pill.warning { color: var(--warn); background: var(--warn-bg); }
+.sync-pill.warning .dot { background: var(--warn); }
+.sync-pill.error { color: var(--error); background: var(--error-bg); }
+.sync-pill.error .dot { background: var(--error); }
+.font-size-control { display: inline-flex; align-items: center; gap: 2px; }
+.font-size-control button { padding: 2px 8px; min-width: 32px; font-size: var(--fs-sm); font-weight: 700; }
+.sync-progress { font-size: var(--fs-sm); color: var(--muted); }
+.sync-progress:empty { display: none; }
+.sync-progress.error { color: var(--error); }
+/* 防呆訊息：按了不會有新資料時說明原因，並留一個「仍要重跑」 */
+.sync-progress.blocked { color: var(--warning, #b45309); display: inline-flex; align-items: center; gap: 6px; }
+.sync-progress.blocked .link-button { color: inherit; text-decoration: underline; white-space: nowrap; }
+.sync-pill[aria-expanded='true'] { border-color: var(--rule); background: var(--surface); }
+
+/* ---------- 版面 ---------- */
+.app { display: block; min-height: 100vh; background: var(--canvas); }
+main { max-width: 1360px; margin: 0 auto; padding: var(--space-6) 20px 64px; display: grid; gap: var(--space-6); }
+.page-head { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
+.page-head p { margin: 0; }
+/* 分頁導覽上的說明提示（InfoTip，見 Header）：移上去／聚焦／點 ⓘ 才顯示，不佔版面 */
+.info-wrap { display: inline-flex; align-items: center; }
+.info-button { color: var(--muted); }
+.info-button:hover:not(:disabled) { color: var(--ink); }
+.info-button svg { width: 18px; height: 18px; }
+/* 提示相對於最近的定位祖先（頂層導覽或次級導覽那一列），放在會捲動的容器之外才不會被裁切 */
+header nav, .subnav-row { position: relative; }
+.info-tip {
+  position: absolute; left: 0; top: 100%; z-index: 30; margin-top: 8px;
+  width: max-content; max-width: min(34em, calc(100vw - 32px));
+  padding: 10px 14px; border-radius: var(--radius-md);
+  background: var(--ink); color: #fff; font-size: var(--fs-sm); font-weight: 400; line-height: 1.6;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.28);
+  visibility: hidden; opacity: 0; pointer-events: none; transition: opacity var(--t-fast);
+}
+.info-wrap.end .info-tip { left: auto; right: var(--space-6); } /* 對齊次級導覽那一列的內距，不貼螢幕邊 */
+/* 頁首最右側（同步範圍）用：貼齊按鈕自己的右緣，說明框往左長，才不會超出畫面被裁掉 */
+.info-wrap.inline-end .info-tip { left: auto; right: 0; }
+.info-tip.open { visibility: visible; opacity: 1; pointer-events: auto; }
+/* 說明內容分行的樣式（例如同步範圍的更新頻率＋上次同步＋冷卻時間） */
+.info-tip .info-line { display: block; }
+/* 頁首的 .header-status 是 nowrap（控制列不換行用），說明框會繼承到而整行被裁掉 → 這裡強制換行 */
+.info-tip { white-space: normal; }
+.info-tip .info-line + .info-line { margin-top: 2px; color: #e2e8f0; }
+/* 上下留白對稱：不然頁籤會被 padding-bottom 往上推（實測比列中心高 3–4px） */
+.subnav-row { display: flex; align-items: center; gap: var(--space-2); max-width: 1240px; margin: 0 auto; padding: var(--space-1) var(--space-6); border-bottom: 1px solid var(--rule); }
+/* 手機／平板：次級導覽固定在頂端（2026-10-11）。
+   這一條是捲動之後還看得到的「我在哪一頁、可以換到哪一頁」——頁首在 ≤1100px 是刻意 static 的
+   （捲動時讓出畫面），所以第二層導覽改由自己固定。
+   純 CSS（position: sticky），沒有 JS 捲動監聽、沒有 scroll 事件，成本是固定佔約 40px 的畫面高度。
+   桌機（≥1101px）不動：那裡本來就有 sticky 的頁首，次級導覽跟著它，不需要另一條固定列。 */
+@media (max-width: 1100px) {
+  .subnav-row {
+    position: sticky;
+    top: 0;
+    z-index: 9; /* 低於頁首的 10、高於內容；說明提示自己是 30 */
+    background: var(--surface);
+  }
+  /* 這一條會蓋住捲過去的內容：程式把名錄捲到視窗頂端時要留它的高度（見 lib/scroll.ts）。
+     實測手機的這一條高 49px（40px 的膠囊＋上下 padding），留 52 才真的不會蓋到第一張卡。 */
+  #directory { scroll-margin-top: 52px; }
+}
+.subnav-row .subnav { flex: 1 1 auto; min-width: 0; max-width: none; margin: 0; padding: 0; border-bottom: 0; }
+/* 次級導覽裡的跨主題捷徑（NavGroup.lead）：跟右邊「本主題自己的頁籤」之間畫一條線 */
+.subnav-divider { flex: 0 0 auto; align-self: center; width: 1px; height: 18px; margin: 0 var(--space-1); background: var(--rule); }
+@media (max-width: 760px) { .subnav-row { padding: var(--space-1) var(--space-4); } .info-wrap.end .info-tip { right: var(--space-4); } }
+.page-lead { margin: 0; max-width: 760px; color: var(--muted); font-size: var(--fs-base); line-height: 1.65; }
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--card-line);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: var(--card-base);
+}
+.period-list { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 0; font-size: var(--fs-sm); color: var(--muted); }
+.period-list dt { font-weight: 600; color: var(--ink-2); }
+.period-list dd { margin: 0; font-variant-numeric: tabular-nums; }
+.fund-kind { border-radius: var(--radius-pill); padding: 1px 8px; font-size: var(--fs-xs); font-weight: 600; color: var(--accent-ink); background: var(--accent-soft); }
+.period-list b { font-weight: 500; color: var(--ink-2); }
+.sectionhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+.sectionhead h2 { margin: 0; }
+.sectionhead > div { display: flex; align-items: center; gap: var(--space-3); }
+.overview { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.overview .hemicycle { grid-template-columns: 1fr; }
+.overview .party-legend { grid-template-columns: 1fr 1fr; }
+
+/* 四態 */
+.state-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.state-block svg { width: 18px; height: 18px; margin-top: 2px; }
+.state-block small { display: block; color: var(--muted); }
+.state-block.error { background: var(--error-bg); border-color: var(--error-line); color: var(--error); }
+.state-block.error small { color: var(--error); }
+.state-block > div { flex: 1; min-width: 0; }
+.state-block.error button { margin-left: auto; white-space: nowrap; flex: none; }
+/* 「連不上」的原因說明：跟錯誤訊息同一塊，用一條細線分隔，不要讓它看起來像另一個錯誤 */
+.connection-hint { display: block; margin-top: 6px; padding-top: 6px; border-top: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+.state-block.loading { background: var(--surface-2); color: var(--ink-2); }
+.state-block.empty { background: var(--surface-2); color: var(--ink-2); }
+.state-block.empty b { font-weight: 600; }
+
+/* ---------- 同步狀態面板 ---------- */
+.status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  box-shadow: var(--shadow-sm);
+}
+.status.warning { border-color: var(--warn-line); background: var(--warn-bg); }
+.status.error { border-color: var(--error-line); background: var(--error-bg); }
+.status-icon svg { width: 20px; height: 20px; }
+.status-main { flex: 1; min-width: 260px; }
+.status-main small { display: block; color: var(--muted); }
+.status.warning .status-main small, .status.error .status-main small { color: inherit; opacity: 0.85; }
+.sync-error, .stale-warning { display: flex; gap: 6px; align-items: center; margin: 6px 0 0; }
+.sync-error svg, .stale-warning svg { width: 16px; }
+.sync-runs { flex-basis: 100%; }
+.sync-runs h3 { display: flex; gap: 6px; align-items: center; font-size: var(--fs-base); margin: var(--space-2) 0; }
+.sync-runs h3 svg { width: 16px; }
+.log-list { list-style: none; margin: 0; padding: 0; }
+.log { display: flex; align-items: flex-start; gap: 10px; padding: var(--space-2) 0; border-top: 1px solid var(--rule-soft); }
+.log small { display: block; color: var(--muted); }
+.log .log-error, .log-error { color: var(--error); }
+.db-counts { display: block; margin-top: 4px; color: var(--muted); font-size: var(--fs-xs); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-top: 7px; flex: none; }
+.dot.error { background: var(--error); }
+.dot.warning { background: var(--warn); }
+
+/* ---------- 篩選 ---------- */
+.selector { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.selector-fields { display: flex; gap: var(--space-2); }
+.selector-fields label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-md); }
+.selector-fields label svg { width: 15px; }
+.selector-fields label > span { display: inline-flex; align-items: center; gap: 4px; }
+.filters { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.filters label { display: contents; }
+.bill-filters .search { flex: 1 1 360px; max-width: 560px; margin-left: 0; }
+.bill-filters .search input { background: var(--surface); }
+.law-facets { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------- 議場席次圖 ---------- */
+.hemicycle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--space-2) var(--space-8);
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: 20px 28px 16px;
+  box-shadow: var(--shadow-sm);
+}
+/* 240px：名錄才是幕僚最常用的部分，席次圖縮小讓第一排委員卡進到首屏 */
+.hemicycle svg { width: 100%; max-height: 240px; display: block; }
+.hemicycle-plot { position: relative; }
+.seat-tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 10px));
+  pointer-events: none;
+  display: grid;
+  gap: 1px;
+  white-space: nowrap;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--party);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
+  font-size: var(--fs-sm);
+  z-index: 2;
+}
+.seat-tip span { color: var(--muted); font-size: var(--fs-xs); }
+.seat { cursor: pointer; stroke: var(--surface); stroke-width: 0.006; transition: fill var(--t-slow), stroke var(--t-slow); }
+.seat:hover { stroke: var(--ink); stroke-width: 0.012; }
+.seat.convener { stroke: var(--ink); stroke-width: 0.014; }
+.hemicycle-count { font: 700 0.2px var(--sans); fill: var(--ink); letter-spacing: -0.01em; }
+.hemicycle-caption { font: 0.055px var(--sans); fill: var(--muted); }
+.party-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.party-legend button { width: 100%; justify-content: flex-start; gap: 10px; padding: var(--space-2) 10px; }
+.party-legend .swatch { width: 12px; height: 12px; border-radius: 50%; background: var(--party); }
+.party-legend .party-name { flex: 1; text-align: left; }
+.party-legend .party-count { font-weight: 600; }
+.party-legend button[aria-pressed='true'] { background: var(--party); border-color: var(--party); }
+.party-legend button[aria-pressed='true'] .swatch { background: #fff; }
+.hemicycle-note { grid-column: 1 / -1; margin: 0; font-size: var(--fs-sm); }
+
+/* 「目前只看某個黨」的膠囊：手機點完圖例、畫面捲到名錄之後，圖例已經在螢幕外，
+   這一顆就是那時候唯一看得到、也唯一能一眼取消的地方（見 lib/scroll.ts 的理由）。 */
+.directory-anchor { display: grid; gap: var(--space-3); }
+.active-filter { display: flex; flex-wrap: wrap; gap: 6px; }
+.active-filter .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  color: var(--accent-ink);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+.active-filter .chip svg { width: 14px; height: 14px; }
+
+/* ---------- 名錄 ---------- */
+.segmented { display: inline-flex; }
+.segmented button { border-radius: 0; }
+.segmented button:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.segmented button:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; margin-left: -1px; }
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-3);
+}
+.directory { display: grid; gap: var(--space-3); }
+.chart { display: grid; gap: var(--space-2); }
+.member-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 14px 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--party);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--t-base), border-color var(--t-base), transform var(--t-base);
+}
+.member-card:hover { box-shadow: var(--shadow-md); border-color: #dbe1e8; }
+.membertop { display: flex; gap: var(--space-3); align-items: center; }
+.membertop > div { flex: 1; min-width: 0; }
+.membertop h3 { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.party-line { color: var(--party); font-weight: 600; }
+.avatar, .membertop img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex: none; }
+.avatar {
+  display: grid;
+  place-items: center;
+  background: var(--rule-soft);
+  color: var(--ink-2);
+  font-family: var(--serif);
+  font-weight: 700;
+  border: 1px solid var(--rule);
+}
+.member-area, .member-committees { display: flex; gap: 6px; align-items: center; margin: 0; color: var(--ink-2); font-size: var(--fs-md); }
+.member-area svg { width: 15px; color: var(--muted); }
+.member-committees { color: var(--muted); }
+.member-card footer {
+  margin-top: auto;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--rule-soft);
+  display: flex;
+  flex-wrap: wrap; /* 窄卡片時「統計」與「查看檔案」要能換行，否則統計文案會被切掉（實測 360px） */
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+/* 統計指標（提案／連署／新聞／貼文）：每個指標是不可分割的單位，只在指標之間換行。
+   空間不夠時整塊換到下一行，而不是把「貼文 10/05」折一半或截掉（實測 360px 卡片內寬 259、四項需要 190）。 */
+.member-card footer .member-stats { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); min-width: 0; }
+.member-card footer button { padding: 4px 10px; font-size: var(--fs-sm); }
+.convener-mark {
+  display: inline-block;
+  font: 600 12px/1 var(--sans);
+  padding: 3px 6px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-pill);
+  margin-left: 6px;
+  vertical-align: 2px;
+  letter-spacing: 0.02em;
+}
+h3 .convener-mark, h1 .convener-mark { margin-left: 0; }
+
+/* hover 放大照片（觸控裝置沒有 hover，不受影響） */
+.membertop img { position: relative; transform-origin: left center; transition: transform var(--t-slow), border-radius var(--t-slow); }
+.membertop img:hover { z-index: 5; transform: scale(3.5); border-radius: var(--radius-sm); box-shadow: var(--shadow-md); }
+
+/* 列表模式 */
+.table-wrap { overflow-x: auto; }
+.roster { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-md); }
+.roster th, .roster td { padding: var(--space-2) 10px; border-bottom: 1px solid var(--rule-soft); text-align: left; vertical-align: middle; }
+.roster thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  box-shadow: inset 0 -1px 0 var(--rule);
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.roster thead th:first-child { border-top-left-radius: var(--radius-sm); }
+.roster thead th:last-child { border-top-right-radius: var(--radius-sm); }
+.roster thead button { border: 0; background: none; padding: 0; font-weight: 600; gap: 2px; box-shadow: none; }
+.roster thead button:hover:not(:disabled) { background: none; border: 0; color: var(--accent-ink); }
+.roster thead th[aria-sort='ascending'] button, .roster thead th[aria-sort='descending'] button { color: var(--accent-ink); }
+.roster .sort-mark { display: inline-block; width: 1em; }
+.roster tbody tr { transition: background var(--t-fast); }
+.roster tbody tr:hover { background: var(--surface-2); }
+.roster tbody tr:last-child td, .roster tbody tr:last-child th { border-bottom: 0; }
+.roster tbody th { font-weight: 400; white-space: nowrap; }
+.roster .num { text-align: right; font-variant-numeric: tabular-nums; }
+.roster thead .num button { margin-left: auto; }
+.roster .col-track { width: 36px; padding-right: 0; }
+.party-tag { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
+.swatch { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--party); }
+.committees { color: var(--ink-2); }
+.committee + .committee::before { content: '、'; color: var(--muted); }
+.committee.is-convener { font-weight: 600; }
+
+/* 委員會組成 */
+.chart-scope { margin: -6px 0 10px; font-size: var(--fs-sm); }
+.committee-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.committee-bars button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.5em;
+  grid-template-areas: 'name count' 'bar bar' 'conv conv';
+  gap: 2px 10px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  padding: 6px var(--space-2);
+  text-align: left;
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+}
+.committee-bars button:hover:not(:disabled) { background: var(--rule-soft); border-color: transparent; }
+.committee-bars button[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--ink); }
+.committee-name { grid-area: name; font-weight: 600; }
+.committee-bars .people { grid-area: bar; align-self: center; display: grid; gap: 2px; }
+.people-row { display: grid; grid-template-columns: minmax(0, 1fr) 2em; align-items: center; gap: 4px; }
+.people-seats { display: grid; gap: 1px; }
+.people-seats .person { width: 100%; max-width: 10px; height: auto; aspect-ratio: 10 / 16; }
+.people-row small { font-size: var(--fs-2xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.person { width: 10px; height: 16px; flex: none; }
+.people-legend { display: flex; flex-wrap: wrap; gap: 4px var(--space-4); list-style: none; margin: 0 0 var(--space-2); padding: 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.people-legend li { display: inline-flex; align-items: center; gap: 4px; }
+.committee-count { grid-area: count; text-align: right; font-weight: 600; }
+.committee-conveners { grid-area: conv; font-size: var(--fs-xs); color: var(--muted); }
+.bar { display: flex; height: 10px; border-radius: var(--radius-pill); overflow: hidden; background: var(--rule-soft); gap: 1px; }
+.bar > span { min-width: 2px; }
+
+/* 異動 */
+.changes .log-list { max-height: 360px; overflow: auto; }
+.old-value { text-decoration: line-through; color: var(--muted); }
+.new-value { font-weight: 600; }
+
+/* ---------- 首頁 ---------- */
+.home { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--space-6); align-items: start; }
+.home-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); }
+.activity-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.activity {
+  padding: 14px 0 14px 14px;
+  border-top: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--party);
+  margin-left: -3px;
+  transition: background var(--t-fast);
+}
+.activity:first-child { border-top: 0; }
+.activity:hover { background: var(--surface-2); }
+.activity-who { display: flex; gap: var(--space-3); align-items: center; }
+.activity-who img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; }
+.activity-who > div { flex: 1; }
+.activity-who .name-button { font-size: var(--fs-lg); }
+.activity-who small { display: block; color: var(--muted); }
+.activity-who time { color: var(--muted); font-size: var(--fs-sm); }
+.activity-lines { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 4px var(--space-3); margin: 10px 0 0; font-size: var(--fs-md); }
+.activity-lines dt { color: var(--muted); white-space: nowrap; }
+.activity-lines dd { margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.activity-lines dd small { color: var(--muted); margin-left: var(--space-2); }
+.activity-lines a { text-decoration: none; }
+.activity-lines a:hover { text-decoration: underline; }
+/* ---------- 熱門議題（長條 + 標籤兩種檢視） ---------- */
+.topics-panel { display: grid; gap: var(--space-3); }
+.topics-head { align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
+.topics-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.topics-controls .segmented button { display: inline-flex; align-items: center; gap: 4px; }
+.topic-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.topic-list a {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding: 10px var(--space-2);
+  border-top: 1px solid var(--rule-soft);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: background var(--t-fast);
+}
+.topic-list li:first-child a { border-top: 0; }
+.topic-list a:hover { background: var(--surface-2); }
+.topic-list a:hover .topic-name { text-decoration: underline; }
+.topic-rank { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.topic-name { font-weight: 600; }
+.topic-count { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; }
+.topic-recent { color: var(--accent-ink); font-style: normal; font-size: var(--fs-xs); }
+.topic-delta { color: var(--muted); font-style: normal; font-size: var(--fs-xs); }
+.topic-delta.up { color: var(--success-ink, #067647); }
+.topic-list .bar { grid-column: 2 / -1; height: 6px; }
+.topic-note { margin: 2px 0 0; font-size: var(--fs-sm); }
+.topic-skew {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--fs-sm);
+}
+.topic-foot { margin: 0; font-size: var(--fs-xs); }
+.topic-updated { margin-left: 6px; }
+
+/* 標籤檢視：排序固定（件數由多到少），三段字級，不做隨機散佈與即時重排 */
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  padding: var(--space-3) 0;
+}
+.tag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 3px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  line-height: 1.5;
+  transition: border-color var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.tag:hover { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-ink); }
+.tag-count { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.tag-lg { font-size: var(--fs-xl); font-weight: 700; }
+.tag-md { font-size: var(--fs-base); font-weight: 600; }
+.tag-sm { font-size: var(--fs-sm); color: var(--ink-2); }
+.tag-lg .tag-count, .tag-md .tag-count { font-size: var(--fs-xs); }
+.news-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.news-list li { padding: 10px 0; border-top: 1px solid var(--rule-soft); }
+.news-list li:first-child { border-top: 0; }
+.news-list a { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); }
+.news-list a:hover { text-decoration: underline; }
+.news-list a svg, .bill-title svg, .bill-list a svg, .contact-list a svg, dd a svg { width: 12px; height: 12px; margin-left: 4px; vertical-align: -1px; }
+.news-list small { display: block; color: var(--muted); font-size: var(--fs-sm); }
+
+/* ---------- 法案查詢 ---------- */
+.chip {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  padding: 3px 12px;
+  font-size: var(--fs-sm);
+}
+button.chip:hover:not(:disabled) { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-ink); }
+/* 議案／基金／預算／委員會共用列的「資訊層級」：
+   標題是主角（15px、深墨、最多兩行），中繼資料退到 12px 灰字，
+   列與列之間用留白而不是框線分隔 —— 原本整頁都是 13px 同一種灰，看不出重點。 */
+.bill-results { list-style: none; margin: 0; padding: 0; }
+.bill-results li { padding: var(--space-4) 0; border-top: 1px solid var(--rule-soft); }
+.bill-results li:first-child { border-top: 0; padding-top: 4px; }
+.bill-results li:hover { background: var(--surface-2); }
+.bill-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.bill-title:hover { text-decoration: underline; }
+.bill-meta, .sponsors { display: flex; flex-wrap: wrap; gap: 4px var(--space-3); align-items: center; margin: 6px 0 0; font-size: var(--fs-xs); color: var(--muted); }
+.status-tag { color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--rule); border-radius: var(--radius-pill); padding: 1px 8px; }
+.sponsor { border: 0; background: none; padding: 0; box-shadow: none; font-size: var(--fs-sm); text-decoration: underline; text-decoration-color: transparent; }
+.sponsor:hover:not(:disabled) { background: none; border: 0; text-decoration-color: currentColor; }
+.sponsor.lead { font-weight: 700; }
+
+/* ---------- 委員檔案側欄 ---------- */
+.overlay { position: fixed; inset: 0; background: rgba(16, 24, 40, 0.5); z-index: 20; }
+/* 第二層頁籤的卡片（手機，PageCard）：同一個 .overlay，但
+   ① z-index 低一級 —— 在卡片裡點委員時，委員檔案要疊在它上面，關掉再回到這一張；
+   ② 開卡片時把 top 設成次級導覽的底緣，那一條頁籤才留著（還可以直接點別格換卡片內容）。 */
+.overlay.page-card { z-index: 19; }
+.page-card-title { margin: 0 0 var(--space-2); padding-bottom: var(--space-2); border-bottom: 1px solid var(--rule); font-size: var(--fs-xl); }
+.overlay aside {
+  position: absolute;
+  right: 0;
+  width: min(640px, 100%);
+  height: 100%;
+  background: var(--surface);
+  border-top: 4px solid var(--party);
+  border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-6) 28px 48px;
+  overflow: auto;
+}
+.close { float: right; position: sticky; top: 8px; z-index: 2; background: var(--surface); border-radius: 999px; box-shadow: 0 1px 4px rgb(16 24 40 / 0.25); }
+.detail-head { display: flex; gap: 20px; align-items: flex-start; margin-bottom: var(--space-2); }
+.detail-head img { width: 104px; height: 128px; object-fit: cover; object-position: top; border-radius: var(--radius-md); border: 1px solid var(--rule); }
+.detail-head h1 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.detail-head p { margin: 4px 0; display: flex; align-items: center; gap: 4px; }
+.detail-head p svg { width: 15px; }
+.detail-head button { margin-top: var(--space-2); }
+.detail-section { border-top: 1px solid var(--rule); padding-top: var(--space-4); margin-top: 20px; }
+.detail-section h2 { font-size: var(--fs-lg); }
+.detail-section dl { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 10px 14px; margin: 0; }
+.detail-section dt { color: var(--muted); }
+.detail-section dd { margin: 0; }
+.detail-section dd small { display: block; }
+.chip-list { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0; }
+.chip-list li { display: flex; gap: 4px; align-items: center; }
+.chip.plain { background: var(--rule-soft); border-color: transparent; }
+.chip.convener { border-color: var(--ink); font-weight: 600; }
+.contact-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.contact-list small { display: block; overflow-wrap: anywhere; color: var(--ink-2); }
+.bills > p { margin: 0 0 var(--space-2); font-size: var(--fs-sm); }
+.bill-list { margin: 10px 0 0; padding-left: 20px; display: grid; gap: var(--space-2); }
+.bill-list a { overflow-wrap: anywhere; }
+.bill-list small { display: block; color: var(--muted); }
+
+/* ---------- 排行榜 ---------- */
+.rankings { display: grid; gap: var(--space-6); }
+.board-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--space-4); align-items: start; }
+.ranking-board {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 20px 14px;
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.ranking-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.ranking-title { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
+.ranking-note { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.ranking-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.ranking-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-areas: 'rank who value' '. bar bar' '. meta meta';
+  align-items: center;
+  gap: 4px var(--space-3);
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-md);
+  transition: background var(--t-fast);
+}
+.ranking-row:not(:first-child) { border-top: 1px solid var(--rule-soft); }
+.ranking-row:hover { background: var(--surface-2); }
+.ranking-rank {
+  grid-area: rank;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--rule-soft);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ranking-row:first-child .ranking-rank { background: var(--accent-soft); color: var(--accent-ink); }
+.ranking-who { grid-area: who; display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); min-width: 0; font-size: var(--fs-md); }
+.ranking-who small { color: var(--muted); font-size: var(--fs-sm); }
+.ranking-value { grid-area: value; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.ranking-bar { grid-area: bar; height: 8px; border-radius: var(--radius-pill); background: var(--rule-soft); overflow: hidden; }
+.ranking-fill { height: 100%; border-radius: var(--radius-pill); background: var(--accent); transition: width var(--t-slow); }
+.ranking-meta {
+  grid-area: meta;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  /* 摘要可能很長：最多兩行，讓每一列高度一致（點「開啟來源」仍可看全文） */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ranking-meta .ranking-link { margin-left: 6px; white-space: nowrap; }
+.ranking-link { justify-self: start; color: var(--accent-ink); font-size: var(--fs-sm); font-weight: 600; text-decoration: none; }
+.ranking-link:hover { text-decoration: underline; }
+
+/* 首頁／排行榜共用小卡 */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); }
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--card-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-base);
+  padding: 14px var(--space-4);
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.stat-value { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.stat-label { color: var(--muted); font-size: var(--fs-sm); }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ---------- 響應式 ---------- */
+@media (max-width: 1100px) {
+  header { position: static; gap: var(--space-2) 20px; }
+  .header-status { margin-left: auto; }
+}
+
+/* 平板（761–1100）：搜尋框維持行內（跟狀態列同一列就好），不要自己占一列。
+   768px 的頁首因此從 191px 降到約 100px。手機才需要它自己一列（那裡它會被收成一顆圖示）。 */
+@media (max-width: 760px) {
+  .search { order: 4; flex-basis: 100%; max-width: none; margin-left: 0; }
+}
+
+/* 平板（761–1100）：頁首只要兩列（品牌＋導覽／搜尋＋狀態）。
+   實測 768px：品牌 89 + 20 的間距 + 導覽 623 = 732，比可用的 728 多 4px → 導覽被擠到下一列，
+   頁首變三列（154px）。把間距收到 12px 就進得去；導覽也改成不換行（可橫向捲動）當保險。 */
+@media (min-width: 761px) and (max-width: 1100px) {
+  header { gap: var(--space-2) var(--space-3); }
+  header nav { flex-wrap: nowrap; overflow-x: auto; min-width: 0; }
+  /* 導覽連結左右各收 3px：9 個連結就少 54px，品牌與導覽才進得了同一列。
+     實測 768px（有 ⓘ 的頁面）：659 + 89 + 12 = 760 > 728 → 會被擠成三列（154px）；
+     收完 605 + 89 + 12 = 706 → 兩列 109px。順便讓觸控高度到 40px（平板多半是手指）。 */
+  header nav a { padding: 7px 9px; min-height: 40px; }
+}
+@media (max-width: 900px) {
+  .home, .overview, .board-grid, .grid { grid-template-columns: 1fr; }
+  .stat-row { grid-template-columns: 1fr 1fr; }
+  .home-side { gap: var(--space-4); }
+  .activity { border-left-width: 3px; }
+  .bills { display: grid; gap: var(--space-2); }
+  .bills .bill-list { padding-left: var(--space-6); }
+  .ranking-row { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .ranking-rank { width: 22px; height: 22px; font-size: var(--fs-2xs); }
+}
+@media (max-width: 760px) {
+  /* 手機：頁首不固定，捲動時讓出畫面；篩選改兩欄等寬 */
+  header { position: static; padding: var(--space-2) var(--space-4); }
+  .brand small { display: none; }
+  .filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .filters select, .filters > button { width: 100%; justify-content: center; }
+  .filters .search, .filters .date-range, .filters .segmented { grid-column: 1 / -1; max-width: none; }
+  /* 來源篩選等按鈕組可能比螢幕寬：容器橫向捲動，按鈕不縮、不折字 */
+  .filters .segmented { overflow-x: auto; max-width: 100%; }
+  .filters .segmented button { flex: 1 0 auto; justify-content: center; white-space: nowrap; }
+  .county-table { display: block; overflow-x: auto; }
+  .date-range input { flex: 1; min-width: 0; }
+  header nav { order: 3; flex-basis: 100%; overflow-x: auto; }
+  header nav a { white-space: nowrap; padding: 7px 10px; }
+  .compare { overflow-x: auto; }
+  .compare th, .compare td { padding: 8px 6px; }
+  .compare tbody th { width: 5.5em; }
+  .compare-who { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+  .sync-pill { font-size: var(--fs-xs); }
+  main { padding: var(--space-4) var(--space-4) 48px; gap: var(--space-4); }
+  h1 { font-size: var(--fs-2xl); }
+  .hemicycle { grid-template-columns: 1fr; padding: var(--space-4); }
+  .party-legend { grid-template-columns: 1fr 1fr; }
+  /* 觸控目標：圖例鈕實測只有 38px，比這個站自己用在頁首導覽的 40px 還小；
+     46→44px 是行動版公認的最小值，這裡一次補到 44。膠囊也一起放大 ——
+     它是畫面捲到名錄之後唯一的「取消只看某黨」入口。
+     （`npm run check:rwd` 會把圖例高度當失敗條件，不再靠肉眼。） */
+  .party-legend button { min-height: 44px; }
+  .active-filter .chip { min-height: 44px; }
+  /* 「連不上」的說明在手機上是一句長話：讓「重試」自己佔一列，文字才不會被擠成 6 行
+     （實測 390px：不折的話說明只有 168px 寬、6 行；折了之後約 250px、行數少一半） */
+  .state-block.error { flex-wrap: wrap; }
+  .state-block.error button { width: 100%; justify-content: center; margin-top: 8px; }
+  .panel { padding: 14px var(--space-4); }
+  .overlay aside { padding: 20px var(--space-4) 40px; }
+  .detail-head img { width: 80px; height: 100px; }
+  .detail-section dl { grid-template-columns: 1fr; gap: 2px; }
+  .detail-section dd { margin-bottom: var(--space-2); }
+  .activity-lines { grid-template-columns: 1fr; gap: 0; }
+  .activity-lines dd { margin-bottom: 6px; }
+  .stat-value { font-size: var(--fs-2xl); }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none; animation-duration: 0.001ms; }
+  .spin { animation: none; }
+  .membertop img, .seat { transition: none; }
+}
+
+/* 窄螢幕：格線子項目不得被內容撐寬，選單可換行 */
+main > * { min-width: 0; }
+.selector-fields { flex-wrap: wrap; }
+select { max-width: 100%; }
+.member-card footer button { white-space: nowrap; flex: none; }
+
+/* ---------- 新增：流程、分頁、比較、連署 ---------- */
+.convener-badge { font-size: var(--fs-2xs); font-weight: 600; margin-left: 3px; padding: 0 5px; border: 1px solid currentColor; border-radius: var(--radius-pill); color: var(--ink-2); }
+.new-mark { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--fs-2xs); font-weight: 700; }
+
+.stage-bar { display: inline-flex; align-items: center; list-style: none; margin: 0 4px 0 0; padding: 0; vertical-align: middle; }
+.stage-bar > li { flex: none; padding: 0; margin: 0; border: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--rule); position: relative; }
+.stage-bar > li + li { margin-left: 10px; }
+.stage-bar li + li::before { content: ''; position: absolute; right: 8px; top: 3.5px; width: 10px; height: 1px; background: var(--rule); }
+.stage-bar li.done, .stage-bar li.current { background: var(--accent); }
+.stage-bar li.done + li::before, .stage-bar li.current::before { background: var(--accent); }
+.stage-bar li.current { box-shadow: 0 0 0 3px var(--accent-soft); }
+.stage-bar.stopped li.current, .stage-bar.stopped li.done { background: var(--error); box-shadow: none; }
+.bill-list small .stage-bar { margin-right: 6px; }
+
+.date-range { display: inline-flex !important; align-items: center; gap: 6px; font-size: var(--fs-md); color: var(--muted); }
+.date-range input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-md); padding: 6px 8px; box-shadow: var(--shadow-sm); }
+.pager { display: flex; align-items: center; justify-content: center; gap: var(--space-3); margin-top: var(--space-4); }
+.law-summary { display: grid; gap: var(--space-3); }
+.law-summary h2, .law-summary p { margin: 0; }
+.party-counts { display: flex; flex-wrap: wrap; gap: 4px var(--space-4); list-style: none; margin: 0; padding: 0; font-size: var(--fs-sm); }
+.party-counts .swatch, .partner-list .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+
+.partner-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.partner-list li { display: grid; grid-template-columns: auto auto minmax(40px, 1fr) auto; gap: var(--space-2); align-items: center; }
+.partner-bar { height: 6px; border-radius: var(--radius-pill); background: var(--rule-soft); overflow: hidden; }
+.partner-bar > span { display: block; height: 100%; }
+.partner-count { font-size: var(--fs-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.compare table, .matrix table { width: 100%; border-collapse: collapse; }
+.compare th, .compare td, .matrix th, .matrix td { padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); text-align: left; vertical-align: top; }
+.compare tbody th, .matrix tbody th { font-weight: 600; color: var(--ink-2); }
+.matrix tbody th { white-space: nowrap; }
+.compare thead th { border-top: 3px solid var(--party); }
+.compare td { font-variant-numeric: tabular-nums; }
+.compare td.lead { font-weight: 700; color: var(--accent-ink); }
+.compare-who { display: flex; gap: var(--space-3); align-items: center; }
+.compare-who img, .compare-who .avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }
+.compare-who small { display: block; color: var(--muted); font-weight: 400; }
+.compare-shared { margin: var(--space-4) 0 0; }
+.plain-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.table-scroll { overflow-x: auto; }
+.matrix td { text-align: right; font-variant-numeric: tabular-nums; }
+.matrix td.heat { background: color-mix(in srgb, var(--party) calc(var(--share) * 45%), transparent); }
+
+/* ---------- 預算審議 ---------- */
+/* 8 格（全部＋預算四類＋法人預算／決議書面報告／行政命令）：150px 最小寬在 1200px 版面只排得下 7 格，
+   最後一格會孤零零掉到第二列；130px 剛好 8 格一行，窄螢幕自動變 4＋4。 */
+.category-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-3); }
+.category-tiles .stat-tile { display: grid; justify-items: start; gap: 2px; text-align: left; padding: 14px 16px; }
+.category-tiles .stat-tile[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
+.category-tiles .stat-tile[aria-pressed='true'] .stat-label { color: var(--accent-ink); }
+.budget-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(min(260px, 100%), 1fr); gap: var(--space-6); align-items: start; }
+.state-tag { border-radius: var(--radius-pill); padding: 1px 8px; font-weight: 600; font-size: var(--fs-xs); }
+.state-tag.pending { color: var(--warn); background: var(--warn-bg); }
+.state-tag.done { color: var(--accent-ink); background: var(--accent-soft); }
+.state-tag.returned { color: var(--error); background: var(--error-bg); }
+.type-switch { flex-wrap: wrap; }
+/* 「認定依據」那句話：從整段議程挑出來的關鍵句，用左邊細線跟正文區隔，不要搶過標題 */
+.timeline-match {
+  margin: var(--space-1) 0 0;
+  padding: 2px 0 2px var(--space-2);
+  border-left: 3px solid var(--accent-line);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink);
+}
+/* 「115年度中央政府總預算案」關鍵詞上色：整段議程裡夾著別的案子，不上色找不到（使用者 2026-10-19 要求） */
+.budget-hit {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: #fff1c2;
+  color: #6b4a00;
+  font-weight: 600;
+  box-decoration-break: clone;
+}
+.timeline-match-label {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+/* 類型 chips 現在住在「審議項目」卡片裡（清單正上方）：跟卡片標題留一點距離、跟清單貼緊 */
+.panel > .type-switch { margin: 0 0 var(--space-3); }
+/* 四顆類型 chips（最長是「總預算附屬單位預算（含信託基金）」）在 769px 的卡片裡排成一行：
+   字級 15→13、左右留白 12→9，總寬 795→約 745。窄螢幕仍可換行。 */
+@media (min-width: 900px) {
+  .panel > .type-switch { gap: 6px; }
+  .panel > .type-switch button { font-size: var(--fs-sm); padding: 6px 9px; }
+}
+.type-tag { border: 1px solid var(--rule); border-radius: var(--radius-pill); padding: 0 8px; font-size: var(--fs-xs); color: var(--ink-2); }
+.type-tag.special { border-color: var(--accent-line); color: var(--accent-ink); }
+.partner-list .name-button[aria-pressed='true'] { color: var(--accent-ink); text-decoration-color: var(--accent); background: none; border: 0; }
+.subhead { margin: var(--space-6) 0 var(--space-2); font-size: var(--fs-base); }
+.meeting-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.meeting-list p { margin: 2px 0; font-size: var(--fs-md); color: var(--ink-2); }
+.clamp-2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; margin: 0; }
+/* 委員會頁：會議與紀錄兩欄等寬，窄螢幕疊成一欄 */
+.committee-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: var(--space-6); align-items: start; }
+button.chip[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); font-weight: 600; }
+@media (max-width: 900px) {
+  .budget-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- 總覽 ---------- */
+a.stat-tile { text-decoration: none; color: inherit; transition: border-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast); }
+/* 可點的方塊滑過時「浮起」：底座變厚、整塊上移 2px */
+a.stat-tile:hover { border-color: #98a2b3; box-shadow: var(--card-base-hover); transform: translateY(-2px); }
+/* 固定兩欄（寬螢幕）：第一張卡橫跨兩欄當作「主要焦點」，其餘是等重的次要卡。
+   原本 auto-fill 會讓 8 張卡擠成 3-4 欄，每張都一樣大 → 看不出重點。 */
+.dash-section { display: grid; gap: var(--space-3); }
+.dash-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-3); padding-bottom: var(--space-1); border-bottom: 1px solid var(--rule); }
+.dash-section-head h2 { margin: 0; font-size: var(--fs-xl); }
+.dash-section-head p { margin: 0; font-size: var(--fs-sm); }
+.dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: stretch; }
+.dash-card { padding: var(--space-4) var(--space-4); }
+.dash-card h2 { font-size: var(--fs-base); }
+/* 焦點卡：標題大一級、內文大一級，讓視線先落在這裡 */
+.dash-card.wide { grid-column: 1 / -1; } /* 只跨欄；重點由分區標題表達，不再另外加強調色 */
+.more-link { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-sm); text-decoration: none; color: var(--accent-ink); white-space: nowrap; }
+.more-link svg { width: 14px; height: 14px; }
+.dash-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.dash-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: baseline; font-size: var(--fs-md); }
+/* 只有「標題＋日期」兩個子項的列（例如書面回覆）：標題要吃 1fr、日期靠右；
+   不然標題掉進 auto 欄、日期掉進 1fr 欄，長標題會把日期擠出卡片外 */
+.dash-list li:not(:has(> :nth-child(3))) { grid-template-columns: minmax(0, 1fr) auto; }
+.dash-list a { color: var(--accent-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); }
+.dash-list a:hover { color: var(--accent-ink); text-decoration: underline; }
+.dash-list a svg { width: 11px; height: 11px; margin-left: 3px; vertical-align: -1px; color: var(--muted); }
+.dash-list time { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.dash-list .status-tag { font-size: var(--fs-xs); white-space: nowrap; max-width: 8em; overflow: hidden; text-overflow: ellipsis; }
+.kind { font-size: var(--fs-xs); font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); border-radius: var(--radius-sm, 4px); padding: 1px 6px; margin-right: 6px; white-space: nowrap; }
+.dash-list li > .kind { margin-right: 0; }
+.dash-card.wide { grid-column: 1 / -1; }
+.dash-boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
+.dash-boards h3 { margin: 0 0 4px; font-size: var(--fs-md); }
+.dash-boards ol { margin: 0; padding-left: 1.4em; display: grid; gap: 2px; font-size: var(--fs-md); }
+.dash-boards li .muted { margin-left: 8px; font-size: var(--fs-sm); }
+.region-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-3); }
+.region-card { display: grid; gap: var(--space-2); align-content: start; padding: 14px 16px; }
+.region-card .sectionhead { margin: 0; }
+.region-card h3 { margin: 0; font-size: var(--fs-lg); }
+.region-card h3 a { text-decoration: none; color: var(--ink); }
+.region-card h3 a:hover { color: var(--accent-ink); }
+.region-people { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 0; font-size: var(--fs-sm); }
+.region-person { border-bottom: 2px solid var(--party); }
+.region-person .name-button { font-size: var(--fs-sm); text-decoration: none; }
+@media (max-width: 760px) {
+  .dash-grid, .region-grid { grid-template-columns: 1fr; }
+}
+
+
+/* ---------------------------------------------------------------
+   次級導覽（兩層導覽的第二層）
+   上層 5 個主題放在 header；進入有子頁面的主題時，這條細列出現在 header 下方。
+   目的：把原本「一列 9 個等重項目」收斂成「5 個主題 + 當下主題的子頁」。
+   --------------------------------------------------------------- */
+.subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1, 4px);
+  align-items: center;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 8px var(--space-6) 0;
+}
+.subnav a {
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+.subnav a:hover { background: var(--surface); border-color: var(--line); }
+.subnav a[aria-current='page'] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .subnav { padding: 6px var(--space-4) 0; gap: 2px; }
+  .subnav a { padding: 3px 10px; }
+}
+
+
+/* ---------------------------------------------------------------
+   各縣市動態：預設收合
+   原本 25 張卡片全部攤開（占 4 頁以上捲動、28 個 h3），是總覽最大的雜亂來源。
+   改成原生 <details>：不展開時只占一行，需要時再開。
+   --------------------------------------------------------------- */
+.regions-details { padding: 0; overflow: hidden; }
+.regions-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.regions-details > summary::-webkit-details-marker { display: none; }
+.regions-details > summary::after {
+  content: '▾';
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  transition: transform var(--t-fast);
+}
+.regions-details[open] > summary::after { transform: rotate(180deg); }
+.regions-details > summary:hover { background: var(--surface-2); }
+.regions-details .region-grid { padding: 0 var(--space-4) var(--space-4); }
+.regions-title { font-size: var(--fs-base); }
+
+
+/* ---------------------------------------------------------------
+   篩選列（法案／基金／預算／委員會共用）
+   原本每一顆 chip 都有邊框與底色，一排 10 幾顆看起來像標籤牆。
+   改成：未選取＝無框灰字，選取＝accent 底；hover 才出現底色。
+   --------------------------------------------------------------- */
+.filters .chip {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+  padding: 3px 10px;
+}
+.filters .chip:hover { background: var(--surface-2); border-color: var(--rule); }
+.filters .chip[aria-pressed='true'],
+.filters .chip[aria-selected='true'],
+.filters .chip.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.law-facets { gap: var(--space-1, 4px); }
+.law-facets .chip { font-size: var(--fs-xs); }
+.law-facets .facet-toggle { background: transparent; border-style: dashed; color: var(--accent-ink); font-weight: 600; }
+.pager { display: flex; align-items: center; justify-content: center; gap: var(--space-3); margin-top: var(--space-4); font-size: var(--fs-sm); }
+.pager .link-button { border: 1px solid var(--rule); border-radius: var(--radius-md); padding: 4px 12px; background: var(--surface); }
+.pager .link-button:disabled { opacity: 0.45; }
+
+/* 總覽「新聞來源」：媒體名稱｜依黨籍分色的長條｜則數 */
+.source-bars { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.source-bars li { display: grid; grid-template-columns: 9em 1fr 3em; align-items: center; gap: 8px; font-size: 0.9rem; }
+.source-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-bar { display: flex; height: 10px; min-width: 2px; border-radius: 3px; overflow: hidden; }
+.source-bar.mono { background: var(--ink); opacity: 0.45; }
+.source-count { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---------- 縣市統計地圖 ---------- */
+.stat-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); margin: var(--space-4) 0 var(--space-3); }
+.stat-control { display: grid; gap: 4px; font-size: var(--fs-sm); color: var(--muted); }
+.stat-control select { min-width: min(360px, 100%); max-width: 100%; }
+.stat-overview { margin-bottom: var(--space-4); }
+.stat-tabs, .stat-scales { flex-wrap: wrap; }
+.stat-tabs button, .stat-scales button { white-space: nowrap; }
+.county-layout { display: grid; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); gap: var(--space-4); align-items: start; margin-top: var(--space-4); }
+.county-map-panel { position: sticky; top: var(--space-3); display: grid; gap: var(--space-3); }
+.stat-dual { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.county-layout > *, .stat-dual > * { min-width: 0; }
+.stat-map { margin: 0; display: grid; gap: 8px; }
+.stat-map figcaption { font-weight: 700; text-align: center; }
+.stat-map svg { width: 100%; height: auto; max-height: 64vh; }
+.stat-map-hover { margin: 0; min-height: 1.5em; text-align: center; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.stat-legend { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.stat-legend i { height: 12px; border-radius: 3px; border: 1px solid var(--rule); }
+.county-shape { stroke: #fff; stroke-width: 0.8; cursor: pointer; transition: opacity var(--t-fast); outline: none; -webkit-tap-highlight-color: transparent; }
+.county-shape:hover { opacity: 0.8; }
+.county-inset { fill: none; stroke: var(--rule); stroke-dasharray: 4 3; }
+.county-inset-label { font-size: 15px; fill: var(--muted); }
+.stat-ranking { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.stat-ranking li { display: grid; grid-template-columns: 24px 64px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
+.stat-bar { height: 16px; background: var(--rule-soft); border-radius: 3px; overflow: hidden; }
+.stat-bar i { display: block; height: 100%; }
+.stat-bar-value { min-width: 9em; text-align: right; }
+.county-detail { display: grid; gap: var(--space-4); }
+.county-detail h2, .county-detail h3 { margin: 0; }
+.county-legislators { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.county-legislators h3 { width: 100%; }
+.county-legislator { display: inline-flex; align-items: center; gap: 4px; }
+.county-election { display: grid; gap: 6px; }
+.county-election p { margin: 0; }
+.county-margin { font-size: var(--fs-md); }
+.county-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.county-table th, .county-table td { padding: 6px 8px; border-bottom: 1px solid var(--rule-soft); text-align: left; white-space: nowrap; }
+.county-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.county-table tr[aria-current='true'] td { background: var(--accent-soft); }
+.county-previous ul { margin: 6px 0 0; padding-left: 18px; font-size: var(--fs-sm); }
+@media (max-width: 860px) {
+  .county-layout, .stat-dual { grid-template-columns: 1fr; }
+  .county-map-panel { position: static; }
+  .stat-map svg { max-height: 52vh; }
+  .stat-ranking li { grid-template-columns: 20px 56px minmax(0, 1fr); }
+  .stat-bar-value { grid-column: 2 / -1; min-width: 0; text-align: left; }
+}
+
+/* 得票趨勢、立委得票 */
+.trend-chart { margin: var(--space-3) 0 0; display: grid; gap: 8px; }
+.trend-chart figcaption { font-weight: 700; }
+.trend-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: var(--fs-sm); }
+.trend-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.trend-legend i { width: 14px; height: 2px; background: var(--party); }
+.trend-turn-key { width: 12px; height: 12px; border: 2px solid var(--muted); border-radius: 50%; display: inline-block; }
+.trend-plot { position: relative; }
+.trend-plot svg { width: 100%; height: auto; display: block; }
+.trend-grid { stroke: var(--rule-soft); }
+.trend-crosshair { stroke: var(--muted); stroke-dasharray: 3 3; }
+.trend-axis { font-size: 12px; fill: var(--muted); }
+.trend-label { font-size: 13px; fill: var(--ink); font-weight: 700; }
+.trend-tooltip { position: absolute; top: 8px; transform: translateX(-50%); display: grid; gap: 2px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 6px 16px -8px rgba(16, 24, 40, 0.3); font-size: var(--fs-sm); white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
+.trend-tooltip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.trend-table td.num { vertical-align: top; }
+.trend-diff { display: block; color: var(--muted); font-size: var(--fs-xs); }
+.trend-turn { box-shadow: inset 0 0 0 2px var(--warn-line); background: var(--warn-bg); }
+.trend-turn small { color: var(--warn); font-weight: 700; }
+.trend-total td { font-weight: 700; border-bottom: 2px solid var(--rule); }
+.legislator-votes { display: grid; gap: var(--space-3); }
+.legislator-votes-card h3 { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.legislator-votes > * { min-width: 0; }
+.stat-control input { min-width: 0; max-width: 100%; }
+.election-history ol { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: grid; gap: 10px; }
+.election-history li { display: grid; gap: 2px; font-size: var(--fs-sm); padding-bottom: 10px; border-bottom: 1px solid var(--rule-soft); }
+.election-history .pill { margin-left: 6px; }
+.election-won { font-weight: 700; }
+/* 罷免紀錄（中選會官方清單）：只有案件與結果，沒有票數 */
+.recall-record { margin-bottom: var(--space-3); padding: 10px 12px; border: 1px solid var(--rule-soft); border-radius: 8px; }
+.recall-record h4 { margin: 0 0 6px; font-size: var(--fs-sm); }
+.recall-record ul { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 4px; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.recall-passed { font-weight: 700; color: var(--danger, #b91c1c); }
+.election-numbers { font-variant-numeric: tabular-nums; }
+.pvp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 520px; overflow-y: auto; }
+.pvp-list li { display: grid; grid-template-columns: 6em 4em minmax(80px, 1fr) minmax(0, 1.4fr); align-items: center; gap: 8px; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.pvp-bar { position: relative; height: 14px; background: linear-gradient(to right, transparent calc(50% - 1px), var(--muted) calc(50% - 1px), var(--muted) calc(50% + 1px), transparent calc(50% + 1px)), var(--rule-soft); border-radius: 3px; }
+.pvp-bar i { position: absolute; top: 2px; bottom: 2px; background: var(--ink); opacity: 0.7; border-radius: 2px; }
+.pvp-value small { display: block; }
+@media (max-width: 760px) {
+  .pvp-list li { grid-template-columns: 6em 4em minmax(0, 1fr); }
+  .pvp-value { grid-column: 1 / -1; }
+}
+.pvp-list li > .party-tag { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.region-stats { display: grid; gap: 2px; font-size: var(--fs-sm); margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--rule-soft); }
+.region-stats p { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-variant-numeric: tabular-nums; }
+.region-winner { display: inline-flex; align-items: center; gap: 4px; }
+.split-scatter { width: 100%; height: auto; max-height: 60vh; display: block; }
+.split-scatter circle { cursor: default; }
+.split-table { max-height: 640px; overflow-y: auto; }
+.split-table thead th { position: sticky; top: 0; background: var(--surface); }
+.split-table tr[aria-current='true'] td { background: var(--accent-soft); }
+.corr-strong { font-weight: 700; background: var(--accent-soft); }
+.town-change li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 8px; padding: 4px 0; border-bottom: 1px solid var(--rule-soft); font-variant-numeric: tabular-nums; }
+.town-change small { grid-column: 1 / -1; }
+.stat-map svg .county-shape { stroke-width: var(--map-stroke, 0.8); }
+.map-outline { fill: none; stroke: var(--ink); stroke-width: 1; opacity: 0.55; pointer-events: none; }
+.stat-map svg { -webkit-tap-highlight-color: transparent; }
+/* 選取外框（疊在最上層，見 ChoroplethMap 的 OutlineOverlay）：白色光暈墊底，再壓一條細線；
+   non-scaling-stroke 讓粗細以螢幕像素計，縣市圖與放大後的鄉鎮圖看起來一樣 */
+.map-ring-halo, .map-ring-line { fill: none; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.map-ring-halo { stroke: #fff; stroke-width: 5px; opacity: 0.9; }
+.map-selected .map-ring-line { stroke: var(--ink); stroke-width: 2px; }
+.map-hover .map-ring-halo { opacity: 0.6; stroke-width: 4px; }
+.map-hover .map-ring-line { stroke: var(--accent); stroke-width: 1.75px; }
+.town-ranking { max-height: 640px; overflow-y: auto; }
+.town-ranking li { grid-template-columns: 28px minmax(0, 1fr) auto; }
+.town-ranking li[aria-current='true'] { background: var(--accent-soft); }
+.town-layout { grid-template-columns: minmax(300px, 560px) minmax(0, 1fr); }
+@media (max-width: 860px) { .town-layout { grid-template-columns: 1fr; } }
+
+/* ---------- 我的機關 ---------- */
+.agency-picker { flex: 1 1 280px; max-width: 420px; }
+.agency-picker label { display: grid; gap: 4px; }
+.agency-picker input { width: 100%; }
+.agency-picker-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.watchers { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); }
+.watchers li { display: inline-flex; align-items: baseline; gap: 6px; }
+/* 「誰在關注」的件數＝連到明細（同一頁的卡片，記在網址 ?watch=，可分享、上一頁回得去） */
+.count-button { font-size: var(--fs-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.count-button[aria-expanded='true'] { color: var(--accent-ink); text-decoration-color: currentColor; }
+/* 明細卡片：依來源分組，每組一個小標題；每一列都連回原始資料 */
+.watcher-detail { margin-top: var(--space-3); }
+.watcher-detail h3 { margin: var(--space-4) 0 var(--space-2); display: flex; align-items: baseline; gap: 6px; font-size: var(--fs-md); }
+.watcher-detail h3 .muted { font-size: var(--fs-sm); font-weight: 500; }
+.watcher-detail > section:first-of-type h3 { margin-top: var(--space-2); }
+.cross-link { margin: 0; font-size: var(--fs-sm); }
+.cross-link a { margin-left: 4px; }
+/* 分區錨點（我的機關統計卡）跳過去時不要被固定頁首蓋住 */
+.dash-section-head h2 { scroll-margin-top: 96px; }
+/* 總覽頂端的「我的機關」摘要：一列，機關名＋各項件數＋前往 */
+.my-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-6); padding: var(--space-3) var(--space-4); }
+.my-strip h2 { margin: 0; font-size: var(--fs-lg); display: flex; align-items: baseline; gap: var(--space-2); }
+.my-strip h2 .muted { font-size: var(--fs-sm); font-weight: 500; }
+.my-strip ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--fs-md); color: var(--ink-2); }
+.my-strip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.my-strip .more-link { margin-left: auto; }
+/* 我的機關頁首：機關名、首長、更換機關同一列 */
+.my-head { align-items: center; row-gap: var(--space-2); }
+.my-head .agency-picker-row { margin-left: auto; }
+.my-head .agency-picker label { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.my-head .agency-picker input { flex: 1; min-width: 15em; }
+/* 議員分頁（/council）：靜態的中選會選舉結果。
+   版面盡量沿用既有類別（panel／stat-row／roster／region-people／regions-details／stat-dual），
+   這裡只留這一頁真的需要的四件事。 */
+.council-head { align-items: center; row-gap: var(--space-2); }
+.council-switches { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-left: auto; }
+/* 選舉區摘要比各縣市動態多一行當選名單（這一頁的重點），所以允許換行 */
+.council-districts { display: grid; gap: var(--space-2); }
+.council-district > summary { flex-wrap: wrap; }
+.council-district > summary .region-people { flex-basis: 100%; font-weight: 400; }
+.council-district-body { display: grid; gap: var(--space-3); padding: 0 var(--space-4) var(--space-4); }
+/* 兩份名單（現任落選／未列名候選人）：一列一個人，右邊接票數或選舉區 */
+.council-people { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); font-size: var(--fs-md); }
+.council-people li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-2); }
+.council-people small { font-variant-numeric: tabular-nums; }
+.roster tr.council-elected { background: var(--accent-soft); }
+.council-value-long { font-size: var(--fs-lg); line-height: 1.35; overflow-wrap: anywhere; }
+
+
+/* 議員近期動態：臉書欄（粉專連結＋整理表的最新貼文） */
+.council-fb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; max-height: 70vh; overflow-y: auto; }
+.council-fb-row { padding: 8px 0; border-top: 1px solid var(--rule-soft); }
+.council-fb-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.council-fb-head a { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-sm); }
+.council-fb-head a svg { width: 12px; height: 12px; }
+
+/* 社群整理表過期提醒（人工維護的資料停更時，不要讓舊日期看起來像最新） */
+.social-stale { display: block; color: var(--warn); }
+.council-fb-latest { display: block; margin-top: 2px; font-size: var(--fs-sm); color: var(--muted); }
+/* 最新一則貼文的互動數（讚／留言）：跟著「最新貼文」那一行，抓不到就整行不畫 */
+.wall-engagement { display: flex; align-items: center; gap: 10px; margin-top: 2px; font-size: var(--fs-sm); color: var(--muted); }
+.wall-engagement span { display: inline-flex; align-items: center; gap: 4px; }
+.wall-engagement svg { width: 14px; height: 14px; }
+
+/* ---------- 委員 › 粉專牆 ---------- */
+/* 篩選列：標籤固定寬度，chips 自己換行（重用 .chip 與 .law-facets） */
+.wall-filters { display: grid; gap: 6px; margin-top: var(--space-2); }
+.wall-filter-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.wall-filter-label { flex: none; min-width: 4em; font-size: var(--fs-sm); color: var(--muted); }
+.wall-bulk { margin: var(--space-2) 0 0; }
+
+/*
+ * 全站唯一的瀑布流：CSS Grid ＋ JS 量高度的 span（`useMasonry`）。
+ *
+ * 為什麼不是 CSS multi-column：multi-column 由上往下填滿第一欄才換第二欄，卡片一多
+ * （例如粉專牆預設就可能 80+ 位），最新的全部擠在最左那一欄，看起來像「最左一欄才是
+ * 最新的」。Grid 逐列填＝第一列就是最新那幾位，閱讀順序由左到右、由上到下。
+ * `grid-auto-rows: 8px` 是量測單位，要跟 `useMasonry({ rowUnit: 8 })` 一致。
+ * 寬度不足時 `auto-fill` + `minmax(300px, 1fr)` 會自動減欄，不必另外寫 media query。
+ */
+.fb-wall {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-auto-rows: 8px;
+  gap: var(--space-3);
+  align-items: start;
+}
+.fb-wall > li {
+  /* 高度由 useMasonry 用 grid-row-end: span N 撐開，這裡不再留 margin（會讓量測失準） */
+  margin: 0;
+  break-inside: avoid;
+}
+/* .member-card 在格線裡是 height:100%（等高）；瀑布流裡要各自依內容高，否則會留一大塊空白 */
+.fb-wall .member-card { height: auto; }
+/*
+ * 這一頁用滿桌面寬度：卡片是「姓名＋日期＋兩三行摘要」的純文字，
+ * 沿用全站的 1360px 上限時，大螢幕（1920 以上）兩側會留下大片空白，
+ * 看起來像「內容只有一半」。`:has()` 只在這一頁生效，不動其他頁的版面。
+ */
+main:has(.fb-wall) { max-width: min(1840px, 96vw); }
+.wall-page { margin: 0; color: var(--muted); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.wall-actions { display: inline-flex; align-items: center; gap: var(--space-2); }
+.wall-card footer a { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-sm); }
+.wall-card footer a svg { width: 12px; height: 12px; }
+
+/* ---------- 預算：各年度審議進度 ---------- */
+.year-panel { margin-bottom: var(--space-4); }
+/* 收合後的說明（決議案與定期報告沒有審議進度）：一行、不佔版面 */
+.fold-note { margin: 0 0 var(--space-3); }
+/* 「各年度審議進度」標題旁的一句單位說明（件 vs 場）：與 .sectionhead 同一列，窄螢幕會折到下一行 */
+.year-panel-note { margin: 0 0 0 auto; font-size: var(--fs-sm); max-width: 46ch; text-align: right; }
+@media (max-width: 720px) { .year-panel-note { margin: 4px 0 0; text-align: left; max-width: none; } }
+.year-summary { margin: 0 0 var(--space-3); font-size: var(--fs-sm); }
+/*
+ * 每一列＝年度｜長條｜數字。長條以前是 `1fr`（在 1440px 上約 700px 長）：一條細長條看不出比例，
+ * 還把整排撐得很寬（使用者 2026-10-19：「bar 圖太長佔位子」）。
+ * 改成「固定短條（約 140px）＋數字緊跟在後」，並在寬螢幕排成兩欄 → 面板高度少一半、比例也更好比。
+ */
+.year-progress { display: grid; gap: 6px; }
+@media (min-width: 1024px) {
+  .year-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
+  .year-letter-toggle { grid-column: 1 / -1; justify-self: start; }
+}
+.year-progress-row {
+  display: grid; grid-template-columns: 6.5rem 8.75rem max-content; align-items: center; gap: 10px;
+  justify-content: start;
+  padding: 5px 9px; border: 1px solid var(--rule-soft); border-radius: var(--radius-md);
+  background: var(--surface); color: inherit; text-align: left; font: inherit; cursor: pointer;
+  min-width: 0;
+}
+.year-progress-row:hover { border-color: var(--rule); }
+/* 全域 `button[aria-pressed='true']` 是「深底白字」，這裡只有換底色 → 一定要把字色改回來，
+   否則選中的那一列是「白字＋淺藍底」（實測 2026-10-19 在 114 年度那一列幾乎看不到字） */
+.year-progress-row[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft, rgba(37, 99, 235, 0.06));
+  color: var(--ink);
+}
+.year-progress-name { font-size: var(--fs-sm); font-weight: 600; }
+.year-progress-numbers { font-size: var(--fs-sm); color: var(--ink-2); text-align: left; white-space: nowrap; }
+.year-bar { display: flex; height: 10px; border-radius: var(--radius-pill); overflow: hidden; background: var(--rule-soft); }
+.year-bar-part.reviewed { background: var(--success, #16a34a); }
+.year-bar-part.in_review { background: var(--accent, #2563eb); }
+.year-bar-part.pending { background: var(--warning, #d97706); }
+@media (max-width: 760px) {
+  .year-progress-row { grid-template-columns: 7rem 1fr; }
+  .year-progress-numbers { grid-column: 1 / -1; text-align: left; }
+}
+
+/* 分年度呈現：每年一段 */
+.budget-group { margin-bottom: var(--space-5); }
+.budget-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3); margin: 0 0 var(--space-2); }
+.budget-group-head h3 { margin: 0; font-size: var(--fs-lg); }
+
+.year-letter-toggle { justify-self: start; margin-top: 4px; font-size: var(--fs-sm); }
+
+.scope-note { margin: 0 0 var(--space-3); font-size: var(--fs-sm); }
+.scope-switch button { white-space: nowrap; }
+
+.committee-tag { font-size: var(--fs-xs, 0.75rem); color: var(--ink-2); border: 1px dashed var(--rule); border-radius: var(--radius-pill); padding: 0 8px; }
+
+/* ---------------------------------------------------------------
+   手機（RWD）2026-10-07：橫向溢出與頁首高度
+   驗收：`npm run check:rwd`（scripts/check-rwd.mjs）—— 手機寬度下
+   document.documentElement.scrollWidth 必須等於 clientWidth。
+   現況量測、目標與決策：docs/rwd-plan.md
+   --------------------------------------------------------------- */
+@media (max-width: 760px) {
+  /* 1) 頁首控制列：桌機是刻意排成單列（nowrap），手機必須換行。
+        這是「一個元素弄壞整個站」的那一個：390px 下 .header-status 實測 605px 寬
+        （同步狀態鈕＋字級控制＋同步範圍 select＋更新鈕），讓 21 條路由裡 19 條橫向溢出 231px。 */
+  .header-status {
+    flex-wrap: wrap;
+    white-space: normal;
+    row-gap: 6px;
+    margin-left: 0;
+    justify-content: flex-start;
+    /* 不要獨占一列（那會多花約 40px 的頁首高度）：跟品牌同一列，裝不下才往下折 */
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* 狀態鈕：手機顯示短版時間（「1 天前」），一行就夠，才擠得下同一列的同步範圍與更新鈕 */
+  .header-status .sync-pill { font-size: var(--fs-sm); white-space: nowrap; }
+  .date-long { display: none; }
+  .date-short { display: inline; }
+  .sync-scope { max-width: 100%; min-width: 0; }
+  /* 選項全名在原生選單（點下去那一個）裡看得到，這裡只留辨識得出來的前幾個字 */
+  .sync-scope select { max-width: 15ch; }
+  /* 選單旁的 ⓘ（每個範圍的更新頻率）：手機收起來，同一個資訊在點狀態鈕打開的同步面板裡有 */
+  .sync-scope .info-wrap { display: none; }
+  /* 頁首自己的內距與列距收緊一點（手機每一列都珍貴） */
+  header { padding: 8px var(--space-4); gap: 6px var(--space-3); }
+  .sync-progress { flex-basis: 100%; min-width: 0; }
+  .sync-progress:empty { display: none; }
+  /* 字體大小控制在手機是多餘的（系統本身就有字級設定），讓頁首少一行 */
+  .font-size-control { display: none; }
+
+  /* 2) 主導覽固定一列、可橫向捲動：原本 flex-wrap: wrap 會折成兩列，多占約 40px */
+  header nav { flex-wrap: nowrap; }
+
+  /* 3) 長字串（40 字元的 SHA、網址、長標題）不要撐開版面。
+        flex 子項沒有 min-width: 0 時不會縮到比內容窄 —— /legislators 的「最近異動」
+        就是這樣被一段 SHA 撐到 830px。 */
+  .log > div, .log-list li > div, .changes .log-list li { min-width: 0; }
+  .log small, .log .old-value, .log .new-value, .log code, .db-counts { overflow-wrap: anywhere; word-break: break-word; }
+
+  /* 4) 手機的主要控制項要有好按的高度（≥40px）；表格列內的連結不在此限 */
+  .chip,
+  .filters button,
+  .filters select,
+  .segmented button,
+  .icon-button,
+  .subnav a,
+  header nav a { min-height: 40px; }
+  .icon-button { min-width: 40px; }
+
+  /* 5) 分段選單（.segmented，例如全部新聞頁的類別＋筆數）在手機上會比螢幕寬：
+        它自己是 flex、按鈕又 nowrap，會把整頁撐開（實測 /news/all 溢出 130px）。
+        原本只有 .filters .segmented 有處理，這裡推廣到所有 .segmented。 */
+  .segmented { overflow-x: auto; max-width: 100%; min-width: 0; flex-wrap: nowrap; }
+  .segmented button { flex: 0 0 auto; white-space: nowrap; }
+  /* 包住 .segmented 的外層（例如議員頁的 .council-switches）要能縮到比內容窄，
+     否則它會用內容寬度（實測 512px）把整頁撐開 —— flex 子項預設不會縮到 min-content 以下 */
+  .council-switches { min-width: 0; max-width: 100%; flex: 1 1 auto; }
+
+  /* 6) 搜尋框收成一顆圖示：頁首少一列（實測 179px → 136px），要用再點開。
+        收起時用 display:none，順便讓它離開 Tab 順序；點開後自動聚焦。 */
+  .search-toggle, .magnifier-toggle { display: inline-flex; margin-left: auto; }
+  .magnifier-toggle + .search-toggle { margin-left: 0; }
+  header:not(.search-open) .search { display: none; }
+
+  /* 7) 表格已在 .table-wrap／.table-scroll 內橫向捲動（2026-10-07 實測，父層寬度是對的），
+        這裡只補觸控捲動與細捲軸，讓「右邊還有欄位」比較看得出來 */
+  .table-wrap, .table-scroll { -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+
+  /* 8) 主導覽改成頁籤列：圖示在上、文字在下，選取用底線（2026-10-11，使用者給的參考畫面）。
+        為什麼：390px 只有 5 個半標籤看得到，一行純文字標籤（我的機關／機關／基金…）得逐字讀才知道是哪一頁；
+        加了圖示後每一格一眼可辨，選取狀態也不再靠底色（底色在橫向捲動時容易跟 hover 混淆）。
+        桌機不動：.nav-icon 在桌機是 display:none，桌機那條導覽的寬度預算（768px 實測 706/728）不受影響。 */
+  header nav { gap: 0; scroll-behavior: smooth; }
+  header nav a {
+    position: relative;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    /* 左右 13px：指頭好按（相鄰兩個標籤間距 26px），也讓底線不會貼到隔壁 */
+    padding: 5px 13px 7px;
+    min-height: 47px;
+    border-radius: var(--radius-sm);
+    background: none;
+  }
+  /* 選取的那一格：文字與圖示都用 accent 色，底色歸零，改成底下一條短線 */
+  header nav a[aria-current='page'] { background: none; }
+  header nav a[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: 60%;
+    max-width: 46px;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: var(--accent);
+    transform: translateX(-50%);
+  }
+  .nav-icon { display: inline-flex; }
+  .nav-label { font-size: var(--fs-2xs); line-height: 1.15; }
+}
+
+/* 手機放大鏡（Magnifier.tsx）：透明蓋板接手觸控，鏡片浮在手指上方 */
+.magnifier-catcher { position: fixed; inset: 0; z-index: 1000; touch-action: none; background: transparent; }
+.magnifier-lens {
+  position: fixed; display: none; z-index: 1001; overflow: hidden; pointer-events: none;
+  background: var(--paper, #fff); border: 3px solid var(--accent); border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+}
+.magnifier-inner { position: absolute; top: 0; left: 0; transform-origin: 0 0; pointer-events: none; }
+.magnifier-bar {
+  position: fixed; z-index: 1002; left: 50%; bottom: 16px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px;
+  background: var(--ink-2, #344054); color: #fff; font-size: 0.85rem; box-shadow: 0 4px 14px rgb(0 0 0 / 0.3);
+}
+.magnifier-bar button { min-width: 40px; min-height: 40px; border: 0; border-radius: 999px; background: rgb(255 255 255 / 0.18); color: #fff; font-weight: 600; }
+.magnifier-bar svg { width: 18px; height: 18px; }
+
+/* 手機：委員檔案的頭像與姓名水平置中（頭像在上、文字在下） */
+@media (max-width: 760px) {
+  .detail-head { flex-direction: column; align-items: center; text-align: center; }
+  .detail-head h1, .detail-head p { justify-content: center; }
+}
+
+/* 離線提示（T11）：SW 只快取靜態外框、不快取 /api/v1/*，離線時明講「資料需連線取得」 */
+.offline-notice {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 0 0 12px; padding: 10px 14px;
+  border: 1px solid var(--warn-line); border-radius: var(--radius);
+  background: var(--warn-bg); color: var(--warn);
+}
+.offline-notice small { color: var(--warn); opacity: 0.85; }
+
+/* ---------- 院會表決（/votes）與附帶決議（/resolutions） ---------- */
+.vote-list, .resolution-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-2); }
+.vote-card, .resolution-card { border-top: 1px solid var(--rule-soft); padding-top: var(--space-2); }
+.vote-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: var(--fs-sm); color: var(--ink-2); }
+.vote-issue { margin: 4px 0 6px; font-weight: 600; }
+.vote-tally { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--muted); }
+.vote-tally strong { color: var(--ink); }
+/* 名單：預設收起（一場表決可能上百人），點開才展開 */
+.vote-names { margin-top: 4px; font-size: var(--fs-sm); }
+.vote-names > summary { cursor: pointer; color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px; }
+.vote-names p { margin: 4px 0 0; line-height: 1.6; }
+.vote-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.vote-dot-agree { background: #2f855a; }
+.vote-dot-against { background: #c53030; }
+.vote-dot-abstain { background: #a0aec0; }
+.vote-mine { font-size: var(--fs-sm); padding: 1px 8px; border-radius: 999px; color: #fff; }
+.vote-mine.vote-dot-agree { background: #2f855a; }
+.vote-mine.vote-dot-against { background: #c53030; }
+.vote-mine.vote-dot-abstain { background: #718096; }
+.resolution-title { font-weight: 600; }
+.resolution-note { margin: 4px 0 6px; line-height: 1.7; white-space: pre-wrap; }
+
+/* 預算審查歷程：時間軸（日期＋階段徽章＋委員會），沿用 meeting-list 的間距 */
+.budget-timeline li { border-top: 1px solid var(--rule-soft); padding-top: 10px; }
+.budget-timeline li:first-of-type { border-top: 0; padding-top: 0; }
+.timeline-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.timeline-head time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--fs-sm); }
+.timeline-head b { font-size: var(--fs-md); }
+.stage-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  font-size: var(--fs-xs, 11px);
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.stage-badge.stage-committee { color: var(--accent-ink, #0e2a35); background: var(--accent-soft, #dff0f6); border-color: var(--accent-line, #93d3e8); }
+.stage-badge.stage-negotiation { color: #7a4a00; background: #fdf0d5; border-color: #f0c26a; }
+.stage-badge.stage-joint { color: #1f4d2b; background: #e3f4e8; border-color: #9fd4ad; }
+.stage-badge.stage-plenary { color: #3b1d5e; background: #efe4fb; border-color: #c9b3e8; }
+/* 解凍案（法定預算後的書面報告）後端已不列入預算審議，樣式留著只是備用 */
+.stage-badge.stage-unfreeze { color: #4a3b00; background: #fbf3d9; border-color: #e5d08a; }
+.stage-badge.stage-hearing { color: #4a1b1b; background: #fbe6e6; border-color: #e3b3b3; }
+/* 依委員會分組：一個委員會一行（原生 details），標題列顯示場次與期間，展開才是那一場一場 */
+.committee-group { border-top: 1px solid var(--rule-soft); padding: 9px 0 3px; }
+.committee-group:first-of-type { border-top: 0; }
+.committee-group > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  cursor: pointer;
+}
+.committee-group > summary b { font-size: var(--fs-md); }
+.committee-group[open] > summary { margin-bottom: 8px; }
+.committee-group .budget-timeline { padding-left: 8px; }
+/* 院會那幾場的名字（例「第11屆第4會期第18次會議」）放在標題列下面一行 */
+.timeline-sub { margin: 2px 0 0; font-size: var(--fs-sm); }
+/* 審查單位（主管機關）與「附屬單位／僅詢答」這類補充標記：比階段淡一階，不搶主標題 */
+.unit-badge {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px dashed var(--rule);
+  font-size: var(--fs-xs, 11px);
+  line-height: 1.7;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.unit-subsidiary { border-style: solid; }
+.unit-qa { opacity: 0.75; }
+/* 附屬單位預算底下的基金名稱：一行為限，看不完靠 title 與會議事由 */
+.fund-line {
+  margin: 4px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 專案報告（非審查程序）：虛線、灰階，不要長得像流程上的關卡 */
+.stage-badge.stage-briefing { background: transparent; border: 1px dashed var(--rule-soft); color: var(--muted); }
+
+/* ---------- 預算審查流程（流程帶）：一列六關，掛在「各年度審議進度」選中那一年下面 ---------- */
+/* 展開區塊在兩欄的年度清單裡要橫跨整列 */
+.year-detail {
+  grid-column: 1 / -1;
+  /* grid item 的自動最小尺寸＝內容的 min-content：流程帶六關會把整個年度清單撐到 794px（390 視窗溢出 437px）
+     → 一定要 min-width: 0，讓裡面的 overflow-x 去處理 */
+  min-width: 0;
+  margin: 2px 0 6px; padding: 10px 12px 4px;
+  border: 1px solid var(--rule-soft); border-radius: var(--radius-md);
+  background: var(--paper, #fbfcfe);
+}
+.process-flow { min-width: 0; }
+.process-flow .process-caption { margin: 0 0 2px; font-size: var(--fs-sm); }
+.process-flow .process-rail {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  list-style: none;
+  margin: var(--space-3) 0 var(--space-2);
+  padding: 0 0 6px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+}
+.process-rail > li { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; scroll-snap-align: start; }
+.process-rail > li + li::before { content: '→'; color: var(--muted); font-size: var(--fs-sm); }
+.process-context { color: var(--muted); font-size: var(--fs-xs, 12px); max-width: 78px; line-height: 1.35; text-align: center; }
+.process-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  align-items: center;
+  /* 八關要在 1440px 的年度面板裡排得下（含兩端說明）：150px 會讓最後一關被切掉；
+     標籤像「院會（二讀／三讀、決議案）」會撐到 217px，所以除了 min-width 還要 max-width 逼它折行 */
+  min-width: 96px;
+  max-width: 132px;
+  padding: 7px 8px;
+  text-align: left;
+  cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--rule-soft);
+  border-radius: 12px;
+  color: var(--ink);
+  font: inherit;
+}
+.process-step:hover { border-color: #c7d2e0; }
+.process-step.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.process-step.is-empty { opacity: 0.55; }
+.process-index {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.process-step.is-empty .process-index { background: #eef1f5; color: var(--muted); }
+/* 七關之後單卡 150px 放不下一行標籤（「彙總審查總報告」會溢出卡片邊框）→ 一律允許折行 */
+.process-label { font-size: var(--fs-sm); font-weight: 600; white-space: normal; line-height: 1.25; }
+.process-count { font-size: var(--fs-sm); color: var(--muted); }
+.process-step.is-active .process-count { color: var(--accent); }
+
+@media (max-width: 760px) {
+  .process-rail > li + li::before { content: '›'; }
+  /* 手機讓標籤折行，六關的總寬度才不會長到要滑很久（實測 1081 → 約 900px） */
+  .process-step { min-width: 112px; padding: 6px 9px; }
+  .process-label { white-space: normal; line-height: 1.25; }
+  /* 手機横向空間有限：兩端（行政院編製概算／總統公布）沒有會議紀錄，收起來，改寫在下方說明 */
+  /* 權重要贏過上面的 `.process-rail > li { display: flex }`，否則收不起來 */
+  .process-rail > li.process-context { display: none; }
+}
