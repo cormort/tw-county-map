@@ -54,6 +54,22 @@ node scripts/county-stats.mjs   # 需要 pdftotext（brew install poppler）與 
 議員席次只有六都（臺北市、新北市、桃園市、臺中市、臺南市、高雄市）有建置資料，其餘縣市不顯示那個區塊。
 一屆動輒十幾個 0 席政黨，表格只列有席次的，其餘在下方用一句話帶過。
 
+### 自動更新（Mac mini，每天 10:30）
+
+`scripts/update_local.sh` 由 Mac mini 的 launchd 每天 10:30 執行（錯過時間會在喚醒後補跑）：
+`git pull` → `snapshot.mjs`（本機立委觀測站 API）→ `county-stats.mjs` → `npm run build` →
+**資料真的變動才 commit 並推送**，推送後由 `.github/workflows/pages.yml` 部署。
+
+- 不用 GitHub Action：`snapshot.mjs` 要連 Mac mini 本機的 `127.0.0.1:8787`，政府網站也可能擋雲端 IP。
+- 每份 API 回應都帶 `meta.generated_at`／`fetched_at`，比對時忽略這兩欄，只有時間戳記不同不算變動。
+- `county-stats.mjs` 失敗時沿用前一份醫療、房價等統計，選舉快照照常更新，並跳通知。
+- 專案有未提交的修改就略過；失敗跳 macOS 通知，紀錄在 `~/Library/Logs/tw-county-map-update.log`。
+- 每年仍要人工改 `county-stats.mjs` 開頭的 `MOHW_PDF`、`MOHW_YEAR`、`SEASONS`。
+
+```bash
+./scripts/update_local.sh --install    # 安裝每日排程（--uninstall 移除；不帶參數＝立即跑一次）
+```
+
 `src/api/client.ts` 的 `slugFor()` 與 `scripts/snapshot.mjs` 的 `slugFor()` 是同一套規則：
 `/api/v1/split-ticket?year=2024` → `split-ticket-year-2024`。
 
