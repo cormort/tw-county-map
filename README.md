@@ -66,5 +66,7 @@ node scripts/county-stats.mjs   # 需要 pdftotext（brew install poppler）與 
 
 ## 資料來源
 
+每個指標的機關、下載網址、目前資料期、算法、已知限制與驗證數字，詳見 [DATA_SOURCES.md](DATA_SOURCES.md)。
+
 中央選舉委員會（歷屆選舉結果）、內政部戶政司（人口、戶數、面積）、立法院開放資料（立委）、衛福部統計處（醫療）、內政部實價登錄（房價、成交量）、農業部（耕地）。
 原始彙整與計算在立委觀測站的後端，這裡只放結果快照。

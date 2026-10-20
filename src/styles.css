@@ -17,6 +17,9 @@
   --rule: #e5e8ec;
   --rule-soft: #eef1f5;
   --seat-off: #dfe3e8;
+  /* 地圖：海面底色與縣市界 */
+  --map-sea: #e4eef7;
+  --map-border: #5f6b7c;
   --warn: #96570a;
   --warn-bg: #fff8ec;
   --error: #b42318;
@@ -1279,7 +1282,7 @@ a.stat-tile:hover { border-color: #98a2b3; box-shadow: var(--card-base-hover); t
 .county-layout > *, .stat-dual > * { min-width: 0; }
 .stat-map { margin: 0; display: grid; gap: 8px; }
 .stat-map figcaption { font-weight: 700; text-align: center; }
-.stat-map svg { width: 100%; height: auto; max-height: 64vh; }
+.stat-map svg { width: 100%; height: auto; max-height: 64vh; background: var(--map-sea); border-radius: var(--radius-md); }
 .stat-map-north { position: relative; border: 1px dashed var(--rule); border-radius: var(--radius-md); overflow: hidden; }
 .stat-map-north > span { position: absolute; top: 6px; left: 10px; font-size: var(--fs-sm); pointer-events: none; }
 .stat-map-north svg { display: block; width: 100%; height: auto; max-height: none; }
@@ -1287,7 +1290,8 @@ a.stat-tile:hover { border-color: #98a2b3; box-shadow: var(--card-base-hover); t
 .stat-map-hover { margin: 0; min-height: 1.5em; text-align: center; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .stat-legend { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .stat-legend i { height: 12px; border-radius: 3px; border: 1px solid var(--rule); }
-.county-shape { stroke: #fff; stroke-width: 0.8; cursor: pointer; transition: opacity var(--t-fast); outline: none; -webkit-tap-highlight-color: transparent; }
+/* 縣市界用深灰：低值的淡黃色配白線幾乎沒有對比，海岸線也跟白色頁面混在一起 */
+.county-shape { stroke: var(--map-border); stroke-width: 0.8; cursor: pointer; transition: opacity var(--t-fast); outline: none; -webkit-tap-highlight-color: transparent; }
 .county-shape:hover { opacity: 0.8; }
 .county-inset { fill: none; stroke: var(--rule); stroke-dasharray: 4 3; }
 .county-inset-label { font-size: 15px; fill: var(--muted); }

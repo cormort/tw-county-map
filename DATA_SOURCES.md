@@ -1,0 +1,180 @@
+# 資料來源
+
+這份文件記錄網站上每個數字從哪裡來、怎麼算、最近一次抓到的是哪一期，以及怎麼驗證、怎麼更新。
+**新增或更換來源時，請一起改這份文件。**
+
+資料有兩條管線：
+
+| 管線 | 產生方式 | 寫出的檔案 |
+| --- | --- | --- |
+| A. 立委觀測站快照 | `node scripts/snapshot.mjs`（要先跑起 ly-dashboard 的 API） | `counties.json`、`demographics.json`、`population-trend.json`、`town-map.json`、`legislator-votes.json`、`split-ticket*.json`、`council-*.json`、`_snapshot.json` |
+| B. 政府開放資料 | `node scripts/county-stats.mjs`（直接抓，需要 `pdftotext`、`unzip`） | `county-stats.json`、`county-trends.json` |
+
+下表的「目前資料期」是 2026-10-20 產生時抓到的期別。
+
+---
+
+## B. 政府開放資料（`scripts/county-stats.mjs`）
+
+### 醫療：衛福部醫事機構服務量統計年報
+
+| 項目 | 內容 |
+| --- | --- |
+| 機關 | 衛生福利部統計處 |
+| 檔案 | 113 年醫事機構服務量統計年報（PDF，446 頁，約 11 MB）：<https://www.mohw.gov.tw/dl-97890-29ae7106-ef97-442e-b3ff-9a8eb164f7a6.html> |
+| 目前資料期 | 113 年底（2024 年底） |
+| 更新頻率 | 一年一本，通常隔年 12 月發布 |
+| 使用的表 | 表 20 醫療院所家數－按縣市別分；表 24 醫療院所病床數－按縣市別分；表 28 醫療院所執業醫事人員數－按縣市別分 |
+| 指標 | `institutions` 醫療院所數（表 20 第 1 欄）、`hospitals` 醫院數（表 20 第 2 欄）、`clinics` 診所數（＝醫療院所－醫院）、`beds` 病床數（表 24 第 1 欄）、`physicians` 西醫師（表 28）、`doctors_all` 西醫＋中醫＋牙醫師（表 28） |
+| 每萬人比率 | 分母用**表 28 的年底人口**（跟分子同一時點），不是網站其他地方用的最新月人口 |
+| 解析方式 | `pdftotext -layout` 轉文字，找表名那一行（略過目錄），逐行讀縣市名稱後面的數字；「-」當 0 |
+| 驗證 | 全國合計：醫療院所 24,268 家、病床 170,659 床、西醫師 55,178 人，應與表 20／24／28 的「總計」列一致 |
+| 更新 | 新年報出來後，改腳本開頭的 `MOHW_PDF`（下載網址）與 `MOHW_YEAR`（例如「114 年底」）。表號若變了，改 `table('表20…')` 那幾行 |
+
+### 長照：衛福部長照 ABC 據點
+
+| 項目 | 內容 |
+| --- | --- |
+| 資料集 | 長照 ABC 據點：<https://data.gov.tw/dataset/88270> |
+| 下載網址 | <https://ltcpap.mohw.gov.tw/publish/abc.csv>（約 12 MB） |
+| 目前資料期 | 抓取當天（2026-10-20） |
+| 更新頻率 | 每日 |
+| 指標 | `ltc_points` 據點數、`ltc_per1000_elderly` 每千名 65 歲以上長者的據點數（分母是戶政司最新月 65 歲以上人口） |
+| 算法 | 同一機構每個特約服務項目各一列，**用機構代碼去重**；縣市用「縣市」欄的代碼（如 63000）對應 |
+| 已知限制 | 不分 A／B／C：這份檔案裡臺北市一個 C 據點都沒有，C 據點顯然沒有完整登錄在這裡，所以沒有單獨列出 C 據點 |
+
+### 房價、成交量：內政部實價登錄
+
+| 項目 | 內容 |
+| --- | --- |
+| 機關 | 內政部地政司 |
+| 下載網址 | `https://plvr.land.moi.gov.tw/DownloadSeason?season=115S3&type=zip&fileName=lvr_landcsv.zip`（每季一個 zip，約 15 MB）；說明頁 <https://plvr.land.moi.gov.tw/DownloadOpenData> |
+| 目前資料期 | 近四季申報：114S4、115S1、115S2、115S3（2025 Q4–2026 Q3 申報） |
+| 更新頻率 | 每季（另有每旬，但這裡只用季檔） |
+| 使用的檔 | 各縣市的 `{代碼}_lvr_land_a.csv`（不動產買賣）；代碼對照寫在腳本的 `LVR` |
+| 指標 | `house_deals` 房屋買賣件數：交易標的含「建物」的列（排除純土地、純車位）；`house_price` 住宅成交單價中位數（萬元／坪）：只取主要用途＝住家用、單價 > 0，排除備註含親友、特殊關係、員工、瑕疵、急買急賣、毛胚的交易 |
+| 換算 | 1 坪 = 3.305785 平方公尺；單價元／平方公尺 × 3.305785 ÷ 10,000 |
+| 已知限制 | 依「申報季」而不是「交易日期」切；四季加總後件數會略受申報延遲影響。沒有歷年趨勢 |
+| 驗證 | 全國近四季買賣件數 228,689 件；臺北市單價中位數約 85.5 萬元／坪 |
+| 更新 | 改腳本開頭的 `SEASONS`，往後推一季 |
+
+### 房價所得比（衍生）
+
+`price_to_income` ＝ 住宅成交**總價**中位數（實價登錄，同上篩選）÷ 平均每戶可支配所得（家庭收支調查）。
+官方房價所得比用的是**所得中位數**，這裡只有平均數，所以數字會比官方偏低一些。金門、連江沒有所得資料，因此沒有這個值。
+
+### 所得、失業率：主計總處
+
+| 項目 | 平均每戶可支配所得 | 失業率 |
+| --- | --- | --- |
+| 資料集 | 家庭收支調查-平均每戶可支配所得按區域別分：<https://data.gov.tw/dataset/9415> | 人力資源調查縣市別失業率：<https://data.gov.tw/dataset/6640> |
+| 下載網址 | `https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/232214/006-平均每戶可支配所得按區域別分.csv` | `https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230038/mp0101a10.xml` |
+| 目前資料期 | 2025 年 | 2025 年（表內也有半年列，只取已過完的完整年度） |
+| 涵蓋 | 1998 年起；不含金門、連江 | 1978 年起；不含金門、連江 |
+| 指標 | `income` | `unemployment` |
+| 全國值 | 「臺灣地區」欄 | 「臺灣地區」欄 |
+
+**憑證問題**：`ws.dgbas.gov.tw` 的伺服器沒送中繼憑證，curl／Node 會直接驗證失敗。腳本會從伺服器憑證的 AIA 網址
+<http://sslserver.twca.com.tw/cacert/Cyber_SSL_2023.crt> 下載 TWCA 中繼憑證，再補進信任清單。手動驗證可以用：
+
+```bash
+curl -s http://sslserver.twca.com.tw/cacert/Cyber_SSL_2023.crt | openssl x509 -inform der > /tmp/twca.pem
+cat /etc/ssl/cert.pem /tmp/twca.pem > /tmp/bundle.pem
+curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230038/mp0101a10.xml'
+```
+
+### 財政：國發會、國庫署
+
+| 項目 | 歲入、歲出決算 | 公共債務 |
+| --- | --- | --- |
+| 資料集 | 8-1 各縣市政府歲入決算數 <https://data.gov.tw/dataset/6518>；8-2 各縣市政府歲出決算數 <https://data.gov.tw/dataset/6519>（國發會「都市及區域發展統計彙編」） | 歷年各級政府債務概況表 <https://data.gov.tw/dataset/25301>（財政部國庫署） |
+| 下載網址 | 見腳本 `ndcCsv(...)` 兩行（`ws.ndc.gov.tw/Download.ashx?...`） | <https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv> |
+| 目前資料期 | 2024 年度決算 | 民國 114 年度（2025） |
+| 單位 | 百萬元 | 百萬元 |
+| 指標 | `own_revenue_ratio` 自有財源占歲入比率 ＝（歲入合計－補助及協助收入）÷ 歲入合計；`expenditure_per_capita` 每人歲出 ＝ 歲出合計 × 10⁶ ÷ 最新月人口 | `debt` 公共債務餘額（「債務合計」欄：1 年以上＋未滿 1 年）；`debt_per_capita` 每人負債 ＝ 債務 × 10⁶ ÷ 最新月人口 |
+| 已知限制 | 一般常見的「自有財源比率」是以**歲出**為分母，但用這份資料算，臺北市會超過 100%（2024 歲入 2,228 億、歲出 1,587 億），跟官方數字對不起來，所以改用定義明確的「占歲入比率」 | 表內的比率欄，直轄市與縣市的分母不同（GDP 或歲出），所以只用金額 |
+
+### 人口結構、出生死亡、人口動態：戶政司（kiang/data.moi.gov.tw 轉存）
+
+| 項目 | 內容 |
+| --- | --- |
+| 原始資料 | 內政部戶政司「村里戶數、單一年齡人口」（data.gov.tw 77132）與「村里出生、死亡、結婚、離婚」（data.gov.tw 131138），每月一份 |
+| 轉存 | <https://github.com/kiang/data.moi.gov.tw>，讀 `raw/population/YYYY/MM/data.csv` 與 `raw/bdmd/YYYY/MM/data.csv` |
+| 目前資料期 | 人口 2026-09；出生死亡 2025-10～2026-09（近 12 個月）；一年前比較基準 2025-09 |
+| 加總方式 | 村里列依「區域別」前三字（如「新北市」）加總到縣市 |
+| 欄名差異 | 2024 年中以前的檔案是英文欄名（`birth_total`、`people_age_000_m`…），腳本統一換成中文 |
+| 指標 | 男女人口、`sex_ratio` 性比例（男 ÷ 女 × 100）；學齡分組（實際年齡，不是學籍人數）：學齡前 0–5、國小 6–11、國中 12–14、高中 15–17、大學 18–21 歲；`old_dependency` 扶老比（65+ ÷ 15–64）、`young_dependency` 扶幼比（0–14 ÷ 15–64）；`primary_outlook` 6 年後國小學齡人口增減 ＝（0–5 歲 － 6–11 歲）÷ 6–11 歲（粗估，不扣死亡與遷徙） |
+| 出生死亡 | `births`、`deaths` 近 12 個月加總；`birth_rate`、`death_rate` 粗率（‰）分母用迄月人口（不是年中人口，差距在千分之零點幾以內） |
+| 人口動態 | `pop_growth` 一年人口增減 ＝ 2026-09 人口 － 2025-09 人口；`net_migration` 淨遷入（社會增加）＝ 總增加 －（出生 － 死亡）；`aging_speed` 高齡化速度 ＝ 65 歲以上比率的一年變化（百分點） |
+| 為什麼淨遷入用推算的 | 戶政司「縣市遷入及遷出人數」只提供 xls／ods 下載（<https://www.ris.gov.tw/info-popudata/app/awFastDownload/toMain_panel>），所以改用人口恆等式推回淨值；分不出遷入、遷出各多少 |
+| 驗證 | 全國人口 23,213,251 人（應與 `counties.json` 的人口加總一致）；近 12 個月出生 95,877 人、死亡 196,939 人 |
+| 備註 | 新竹縣出生率看起來偏低（4.5‰）。已逐月核對原始資料（每月約 220–240 人），這是資料本身的數字 |
+
+### 新住民：移民署
+
+| 項目 | 內容 |
+| --- | --- |
+| 資料集 | 外籍配偶人數與大陸（含港澳）配偶人數─按區域別、性別分：<https://data.gov.tw/dataset/13503> |
+| 下載網址 | 開放平台上那份 CSV 只到 109 年，所以改打內政部統計查詢網：`https://statis.moi.gov.tw/micst/webMain.aspx?sys=220&kind=21&type=1&funid=c0930301&cycle=41&outmode=12&utf=1&compmode=0&outkind=3&fldspc=0,12,&codspc0=0,2,3,2,6,1,9,1,12,1,15,17,&codlst1=111&ym=11509&ymt=11509`（`ym`／`ymt` 是民國年月；查本月會回最新一期，通常落後 2 個月） |
+| 目前資料期 | 2026-08（累計人數） |
+| 指標 | `new_residents` 新住民 ＝「總計」欄（外籍＋大陸＋港澳配偶）；`foreign_spouses` 外籍配偶；`mainland_spouses` 大陸＋港澳配偶；`new_residents_per1000` 每千人新住民 |
+| 驗證 | 全國總計 622,789 人；22 縣市加總 619,766 人，差 3,023 人（沒有歸到任何縣市） |
+
+### 耕地：農業部
+
+| 項目 | 內容 |
+| --- | --- |
+| 資料集 | 農耕土地面積：<https://data.gov.tw/dataset/94988> |
+| 下載網址 | <https://data.moa.gov.tw/Service/OpenData/TransService.aspx?UnitId=TtusYV8k5Wz8&IsTransData=1>（JSON） |
+| 目前資料期 | 112 年（取資料內最新年度） |
+| 欄位陷阱 | `cultivated_area` **不是公頃**，是「耕地占土地面積的百分比」。公頃數要把 `rice`、`short_norice`、`short_leisure`、`long_farm`、`long_leisure` 五欄加總 |
+| 指標 | `farmland` 耕地面積（公頃）、`farmland_ratio` 耕地占土地面積比率 |
+| 已知限制 | 連江縣各欄全是 0，視為未填報、顯示無資料。資料集回應區曾有人回報 103 年部分數值異常（機關回覆已修正） |
+| 驗證 | 臺中市 112 年約 47,521 公頃，與臺中市政府農業局年報相符；全國約 778,565 公頃 |
+
+### 歷年趨勢（`county-trends.json`）
+
+| 序列 | 期間 | 來源 |
+| --- | --- | --- |
+| `income` 平均每戶可支配所得 | 2016–2025 | 家庭收支調查（同上） |
+| `unemployment` 失業率 | 2016–2025 | 人力資源調查（同上） |
+| `debt` 公共債務餘額 | 2016–2025 | 國庫署（同上） |
+| `births` 出生數 | 2021–2025（曆年 1–12 月加總） | 戶政司 bdmd（同上） |
+| `elderly_ratio` 65 歲以上比率 | 2021–2025（各年 12 月） | 戶政司 population（同上） |
+
+縣市總覽的「人口數」趨勢線用的是 `population-trend.json`（管線 A）的各年 12 月人口。
+
+---
+
+## A. 立委觀測站快照（`scripts/snapshot.mjs`）
+
+這些檔案在 ly-dashboard 的後端彙整，這裡只放結果；原始來源如下：
+
+| 檔案 | 內容 | 原始來源 |
+| --- | --- | --- |
+| `counties.json` | 縣市人口、戶數、面積、年齡、歷屆選舉、縣市輪廓、區域立委 | 中選會選舉資料庫（<https://github.com/kiang/db.cec.gov.tw> 轉存）、戶政司村里單一年齡人口（<https://github.com/kiang/data.moi.gov.tw>）、縣市界（<https://github.com/ronnywang/twgeojson>）、立法院開放資料（<https://data.ly.gov.tw/>） |
+| `demographics.json` | 鄉鎮市區年齡結構與得票 | 中選會、戶政司（同上） |
+| `population-trend.json` | 縣市每月人口（2016-01 起）、鄉鎮各年人口 | 戶政司（同上） |
+| `town-map.json` | 鄉鎮市區界 | 內政部 2023 年鄉鎮市區界（<https://github.com/kiang/taiwan_basecode> 轉存） |
+| `legislator-votes.json`、`split-ticket*.json` | 立委得票、分裂投票 | 中選會、立法院開放資料 |
+| `council-*.json` | 六都議員席次 | 中選會 |
+
+快照時間記在 `_snapshot.json`，頁首會顯示。
+
+---
+
+## 更新流程
+
+1. **年度、季別參數**：打開 `scripts/county-stats.mjs` 開頭，視需要更新 `MOHW_PDF`／`MOHW_YEAR`（衛福部年報）與 `SEASONS`（實價登錄往後推一季）。其他來源都是自動抓最新一期。
+2. **執行**：`node scripts/county-stats.mjs`，大約 5–6 分鐘，大部分時間花在下載實價登錄 zip 和 60 個月的出生死亡檔。失敗時會指出是哪個來源，例如「缺 2026/10 的村里人口資料」。
+3. **驗證**：
+   - 腳本最後會印出臺北市與連江縣的所有值，先看有沒有 `null`，或明顯不合理的數字（例如比率超過 100%）。
+   - 對照上面各節的「驗證」數字，看全國合計有沒有大幅跳動。
+   - `npm run dev` 打開「縣市總覽」，隨便挑幾個縣市看各卡片。
+4. **改文件**：更新這份文件各節的「目前資料期」與驗證數字。
+5. **commit、push**：GitHub Pages 會自動重新部署。
+
+## 格式
+
+`county-stats.json` 的每個 field 都帶 `key`、`label`、`unit`、`period`、`source`、`url`、`category`（頁首的主題按鈕），
+比率、中位數這類不能相加的指標另外帶 `national`（全國值）。前端照著 fields 自動產生指標，加新指標只要改腳本、不用改前端。
