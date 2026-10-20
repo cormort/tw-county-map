@@ -280,11 +280,14 @@ function ElectionTable({ title, current, previous, previousLabel }: { title: str
  * elections＝目前是「選舉」主題：才顯示議員席次、立委與選舉表（首頁預設是人口，不載入選舉的東西）；
  * 其他主題（醫療、房價…）改列該主題各指標在這個縣市的數值。
  */
-function CountyDetail({ county, data, councilCounties, elections, topicMetrics, onOpenId, onNavigate }: { county: CountyItem; data: CountiesResponse; councilCounties: string[]; elections: boolean; topicMetrics: Metric[]; onOpenId: (id: string) => void; onNavigate: (href: string) => void }) {
+function CountyDetail({ county, data, councilCounties, elections, topicMetrics, onShowTowns, onOpenId, onNavigate }: { county: CountyItem; data: CountiesResponse; councilCounties: string[]; elections: boolean; topicMetrics: Metric[]; onShowTowns: () => void; onOpenId: (id: string) => void; onNavigate: (href: string) => void }) {
   const e = data.elections;
   return (
     <section className="panel county-detail" aria-label={`${county.county}詳細資料`}>
-      <h2>{county.county}</h2>
+      <div className="county-detail-head">
+        <h2>{county.county}</h2>
+        <button type="button" onClick={onShowTowns}>看鄉鎮市區地圖</button>
+      </div>
       {/* 獨立站沒有「議員」那一頁，所以席次直接攤在這裡（只有六都有資料） */}
       {elections && councilCounties.includes(county.county) ? <CouncilSeats county={county.county} /> : null}
       <div className="stat-row">
@@ -458,6 +461,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
   // 使用者手動載入的資料（CustomData），跟 county-stats.json 合併成同一份
   const [custom, setCustom] = useState<CountyStatsResponse[]>([]);
   const allStats = useMemo(() => mergeStats([stats.data, ...custom]), [stats.data, custom]);
+  const statKeys = useMemo(() => new Set(allStats.fields.map((f) => f.key)), [allStats]);
   const metrics = useMemo(() => (res.data ? buildMetrics(res.data, allStats) : []), [res.data, allStats]);
   const isElection = metrics.find((m) => m.key === metricKey)?.category === '選舉';
   const council = useApi<Pick<CouncilResponse, 'counties'>>(isElection ? buildUrl('/council', { only: 'counties' }) : null, { refreshToken });
@@ -573,7 +577,16 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
             </div>
             <ChoroplethMap items={items} values={mapValues(metric)} scale={scale} format={formatOf(metric)} title={`${metric.label} - 地理分布圖`} selected={current.county} onSelect={setSelected} />
           </section>
-          <CountyDetail county={current} data={data} councilCounties={council.data?.counties ?? []} elections={metric.category === '選舉'} topicMetrics={metric.category === '人口' || metric.category === '選舉' ? [] : metrics.filter((m) => m.category === metric.category)} onOpenId={onOpenId} onNavigate={onNavigate} />
+          <CountyDetail county={current} data={data} councilCounties={council.data?.counties ?? []} elections={metric.category === '選舉'}
+            // 人口的基本數字上面已有方塊，表格只列 county-stats.json 的人口結構（男女、學齡、出生死亡、新住民）
+            topicMetrics={metric.category === '選舉' ? [] : metrics.filter((m) => m.category === metric.category && (m.category !== '人口' || statKeys.has(m.key)))}
+            onShowTowns={() => {
+              // 鄉鎮層級只有人口與選舉資料：其他主題切回人口
+              if (topic !== '人口' && topic !== '選舉') chooseTopic('人口');
+              setTab('towns');
+              requestAnimationFrame(() => document.querySelector('.stat-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+            }}
+            onOpenId={onOpenId} onNavigate={onNavigate} />
         </div>
       ) : null}
 

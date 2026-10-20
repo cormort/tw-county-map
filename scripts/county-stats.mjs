@@ -9,6 +9,8 @@
  * - 衛福部「醫事機構服務量統計年報」PDF 表 20／24／28（年報一年一本，新一年要換 MOHW_PDF 與 MOHW_YEAR）
  * - 內政部實價登錄開放資料，最近四季的不動產買賣（SEASONS 要跟著季別往後推）
  * - 農業部「農耕土地面積」開放資料（data.gov.tw/dataset/94988），取最新年度
+ * - 戶政司村里單一年齡人口、出生死亡（kiang/data.moi.gov.tw 轉存），取最新月份與近 12 個月
+ * - 移民署外籍與大陸港澳配偶人數（內政部統計查詢網），取最新月份
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -157,6 +159,130 @@ for (const r of farm.filter((r) => Number(r.year) === year)) {
   items[county].farmland_ratio = ha ? Number(r.cultivated_area) : null;
 }
 
+/* ---------- 人口結構、出生死亡（戶政司，kiang/data.moi.gov.tw 轉存）、新住民（移民署） ---------- */
+
+const KIANG = 'https://raw.githubusercontent.com/kiang/data.moi.gov.tw/master/raw';
+/** 讀 kiang 轉存的村里 CSV，依「區域別」前三字加總到縣市；回傳 縣市 → 欄名 → 合計 */
+async function villageCsv(kind, ym) {
+  const res = await fetch(`${KIANG}/${kind}/${ym}/data.csv`);
+  if (!res.ok) return null;
+  const [header, ...rows] = (await res.text()).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+  const cols = header.split(',');
+  const sums = Object.fromEntries(COUNTIES.map((c) => [c, {}]));
+  for (const row of rows) {
+    const r = row.split(','); // ponytail: 這兩份 CSV 沒有引號欄位
+    const county = sums[r[2]?.slice(0, 3)];
+    if (!county) continue; // 第二列英文欄名
+    cols.forEach((col, i) => { if (i > 3) county[col] = (county[col] ?? 0) + Number(r[i]); });
+  }
+  return sums;
+}
+const monthsBack = (n) => {
+  const d = new Date();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() - n);
+  return `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+};
+// 最新一個月的單一年齡人口（通常落後一個月）
+let popYm;
+let ages;
+for (let n = 0; n < 6 && !ages; n++) ages = await villageCsv('population', (popYm = monthsBack(n)));
+if (!ages) throw new Error('找不到最近半年的村里人口資料');
+const popPeriod = popYm.replace('/', '-');
+const census = { category: '人口', period: popPeriod, source: '內政部戶政司村里單一年齡人口', url: 'https://github.com/kiang/data.moi.gov.tw' };
+const ageSum = (c, from, to) => {
+  let n = 0;
+  for (let a = from; a <= to; a++) n += (ages[c][`${a}歲-男`] ?? 0) + (ages[c][`${a}歲-女`] ?? 0);
+  return n;
+};
+// 學制的就學年齡（實際年齡，不是學籍人數）
+const AGE_GROUPS = [
+  ['age_preschool', '學齡前人口（0–5 歲）', 0, 5],
+  ['age_primary', '國小學齡人口（6–11 歲）', 6, 11],
+  ['age_junior', '國中學齡人口（12–14 歲）', 12, 14],
+  ['age_senior', '高中學齡人口（15–17 歲）', 15, 17],
+  ['age_college', '大學學齡人口（18–21 歲）', 18, 21],
+];
+const total = (c) => ages[c]['人口數'];
+const allTotal = COUNTIES.reduce((s, c) => s + total(c), 0);
+const share = (part, whole) => round((part / whole) * 100, 2);
+fields.push(
+  { key: 'male', label: '男性人口', unit: '人', ...census },
+  { key: 'female', label: '女性人口', unit: '人', ...census },
+  { key: 'sex_ratio', label: '性比例（每百女子對男子數）', unit: '男／百女', digits: 1, ...census,
+    national: round((COUNTIES.reduce((s, c) => s + ages[c]['人口數-男'], 0) / COUNTIES.reduce((s, c) => s + ages[c]['人口數-女'], 0)) * 100) },
+);
+for (const c of COUNTIES) {
+  items[c].male = ages[c]['人口數-男'];
+  items[c].female = ages[c]['人口數-女'];
+  items[c].sex_ratio = round((ages[c]['人口數-男'] / ages[c]['人口數-女']) * 100);
+}
+for (const [key, label, from, to] of AGE_GROUPS) {
+  fields.push(
+    { key, label, unit: '人', ...census },
+    { key: `${key}_ratio`, label: `${label.replace('人口', '人口比率')}`, unit: '%', ...census },
+  );
+  for (const c of COUNTIES) {
+    items[c][key] = ageSum(c, from, to);
+    items[c][`${key}_ratio`] = share(items[c][key], total(c));
+  }
+}
+
+// 出生、死亡：最近 12 個月的村里月資料加總（跟人口同一個迄月）
+const vital = Object.fromEntries(COUNTIES.map((c) => [c, { births: 0, deaths: 0 }]));
+const popBack = (12 * (new Date().getUTCFullYear() - Number(popYm.slice(0, 4))) + new Date().getUTCMonth() + 1 - Number(popYm.slice(5)));
+const vitalMonths = [];
+for (let n = popBack; n < popBack + 12; n++) {
+  const m = await villageCsv('bdmd', monthsBack(n));
+  if (!m) throw new Error(`缺 ${monthsBack(n)} 的出生死亡資料`);
+  vitalMonths.push(monthsBack(n));
+  for (const c of COUNTIES) { vital[c].births += m[c]['出生數']; vital[c].deaths += m[c]['死亡數']; }
+}
+const bd = { category: '人口', period: `${vitalMonths.at(-1).replace('/', '-')}～${vitalMonths[0].replace('/', '-')}（近 12 個月）`, source: '內政部戶政司村里出生死亡結婚離婚', url: 'https://github.com/kiang/data.moi.gov.tw' };
+const sumOf = (k) => COUNTIES.reduce((s, c) => s + vital[c][k], 0);
+const perMille = (n, p) => round((n / p) * 1000, 2);
+fields.push(
+  { key: 'births', label: '出生數', unit: '人', ...bd },
+  { key: 'deaths', label: '死亡數', unit: '人', ...bd },
+  { key: 'natural_increase', label: '自然增加數（出生－死亡）', unit: '人', ...bd },
+  { key: 'birth_rate', label: '粗出生率', unit: '‰', digits: 2, ...bd, national: perMille(sumOf('births'), allTotal) },
+  { key: 'death_rate', label: '粗死亡率', unit: '‰', digits: 2, ...bd, national: perMille(sumOf('deaths'), allTotal) },
+);
+for (const c of COUNTIES) {
+  items[c].births = vital[c].births;
+  items[c].deaths = vital[c].deaths;
+  items[c].natural_increase = vital[c].births - vital[c].deaths;
+  // ponytail: 分母用迄月人口，不是年中人口；差距在千分之零點幾以內
+  items[c].birth_rate = perMille(vital[c].births, total(c));
+  items[c].death_rate = perMille(vital[c].deaths, total(c));
+}
+
+// 新住民（外籍配偶＋大陸港澳配偶，累計人數）：內政部統計查詢網，查本月會回最新一個月（通常落後兩個月）
+const now = new Date();
+const rocYm = `${now.getUTCFullYear() - 1911}${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+const spouseCsv = await (await fetch(`https://statis.moi.gov.tw/micst/webMain.aspx?sys=220&kind=21&type=1&funid=c0930301&cycle=41&outmode=12&utf=1&compmode=0&outkind=3&fldspc=0,12,&codspc0=0,2,3,2,6,1,9,1,12,1,15,17,&codlst1=111&ym=${rocYm}&ymt=${rocYm}`)).text();
+let spousePeriod = '';
+for (const line of spouseCsv.split(/\r?\n/)) {
+  // "115年 (8~8月)/ 新北市/ 性別總計",總計,外籍配偶,越南,…,大陸配偶,港澳配偶
+  const m = line.match(/^"(\d+)年 \((\d+)~\d+月\)\/ (\S+)\/ 性別總計",(.*)$/);
+  if (!m || !items[m[3]]) continue;
+  spousePeriod = `${Number(m[1]) + 1911}-${m[2].padStart(2, '0')}`;
+  const v = m[4].split(',').map((x) => (x === '-' ? 0 : Number(x)));
+  items[m[3]].new_residents = v[0];
+  items[m[3]].foreign_spouses = v[1];
+  items[m[3]].mainland_spouses = v[10] + v[11];
+}
+if (!spousePeriod) throw new Error('新住民資料格式變了，讀不到縣市列');
+const nr = { category: '人口', period: `${spousePeriod} 累計`, source: '內政部移民署外籍與大陸港澳配偶人數', url: 'https://data.gov.tw/dataset/13503' };
+fields.push(
+  { key: 'new_residents', label: '新住民（外籍＋大陸港澳配偶）', unit: '人', ...nr },
+  { key: 'foreign_spouses', label: '外籍配偶', unit: '人', ...nr },
+  { key: 'mainland_spouses', label: '大陸港澳配偶', unit: '人', ...nr },
+  { key: 'new_residents_per1000', label: '每千人新住民', unit: '人／千人', digits: 1, ...nr,
+    national: perMille(COUNTIES.reduce((s, c) => s + items[c].new_residents, 0), allTotal) },
+);
+for (const c of COUNTIES) items[c].new_residents_per1000 = perMille(items[c].new_residents, total(c));
+
 await writeFile(OUT, JSON.stringify({ meta: { generated_at: new Date().toISOString() }, fields, items }));
 console.log(`寫出 ${OUT}：${fields.length} 個指標`);
-for (const c of ['臺北市', '臺中市', '連江縣']) console.log(c, JSON.stringify(items[c]));
+for (const c of ['臺北市', '連江縣']) console.log(c, JSON.stringify(items[c]));

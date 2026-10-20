@@ -2,6 +2,18 @@ import { useState, type CSSProperties } from 'react';
 import { colorAt, gradient, type ScaleName } from '../lib/colorScales';
 
 /**
+ * 被包在鄰縣裡的縣市：新北市、嘉義縣的 path 是沒挖洞的整塊，畫在後面會把臺北市、嘉義市整個蓋住，
+ * 滑鼠根本點不到 —— 所以這兩個一定要最後畫。
+ */
+const ENCLAVES = ['臺北市', '嘉義市'];
+
+/** 北部縣市太小不好點：縣市圖下方另畫一張放大圖（同一份 path，只換 viewBox 裁切） */
+const NORTH = ['臺北市', '新北市', '基隆市', '桃園市', '新竹市'];
+const NORTH_VIEWBOX = '300 38 218 150';
+/** 放大圖裡小縣市的名稱位置（各縣市外框的中心，viewBox 座標） */
+const NORTH_LABELS: [string, number, number][] = [['臺北市', 432, 86], ['基隆市', 461, 78], ['新竹市', 321, 145], ['桃園市', 368, 132]];
+
+/**
  * 面量圖：顏色代表數值（連續色階），滑過或點選顯示數值；金門、連江在左上插圖框。
  * items 的 county 是區塊的鍵與顯示名稱（縣市圖為縣市名，鄉鎮圖為「縣市＋鄉鎮」）。
  */
@@ -46,6 +58,47 @@ export function ChoroplethMap({
   }
   const t = (v: number) => (max === min ? 1 : (v - min) / (max - min));
   const focus = hover ?? selected ?? null;
+  const showNorth = NORTH.every((n) => items.some((c) => c.county === n));
+  // inset：放大圖裡的區塊不進 Tab 順序（主地圖已經有同一個縣市，不要讓鍵盤走兩遍）
+  const ordered = [...items].sort((a, b) => Number(ENCLAVES.includes(a.county)) - Number(ENCLAVES.includes(b.county)));
+  const shapes = (inset: boolean) =>
+    ordered.map((c) => {
+      const raw = values.get(c.county);
+      const v = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+      const label = `${c.county}：${format(v)}`;
+      return (
+        <path
+          key={c.county}
+          d={c.path}
+          className="county-shape"
+          aria-current={c.county === selected ? 'true' : undefined}
+          style={{ fill: v === null ? 'var(--seat-off)' : colorAt(scale, t(v)) }}
+          tabIndex={inset ? -1 : 0}
+          role="button"
+          aria-label={label}
+          aria-hidden={inset || undefined}
+          onMouseEnter={() => setHover(c.county)}
+          onMouseLeave={() => setHover(null)}
+          onFocus={() => setHover(c.county)}
+          onBlur={() => setHover(null)}
+          onClick={() => onSelect?.(c.county)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onSelect?.(c.county);
+            }
+          }}
+        >
+          <title>{label}</title>
+        </path>
+      );
+    });
+  const overlays = (
+    <>
+      {hover && hover !== selected ? <OutlineOverlay items={items} county={hover} className="map-hover" /> : null}
+      {selected ? <OutlineOverlay items={items} county={selected} className="map-selected" /> : null}
+    </>
+  );
   return (
     <figure className="stat-map">
       <figcaption>{title}</figcaption>
@@ -53,46 +106,30 @@ export function ChoroplethMap({
         {/* 金門、連江的插圖框 */}
         <rect className="county-inset" x="22" y="4" width="128" height="112" rx="6" />
         <rect className="county-inset" x="3" y="166" width="66" height="54" rx="6" />
-        {items.map((c) => {
-          const raw = values.get(c.county);
-          const v = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
-          const label = `${c.county}：${format(v)}`;
-          return (
-            <path
-              key={c.county}
-              d={c.path}
-              className="county-shape"
-              aria-current={c.county === selected ? 'true' : undefined}
-              style={{ fill: v === null ? 'var(--seat-off)' : colorAt(scale, t(v)) }}
-              tabIndex={0}
-              role="button"
-              aria-label={label}
-              onMouseEnter={() => setHover(c.county)}
-              onMouseLeave={() => setHover(null)}
-              onFocus={() => setHover(c.county)}
-              onBlur={() => setHover(null)}
-              onClick={() => onSelect?.(c.county)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onSelect?.(c.county);
-                }
-              }}
-            >
-              <title>{label}</title>
-            </path>
-          );
-        })}
+        {shapes(false)}
         {outlines.map((d, i) => (
           <path key={i} d={d} className="map-outline" />
         ))}
         {/* 選取／滑過的外框：SVG 沒有 z-index，區塊自己的描邊會被後面畫的鄰區蓋掉而時有時無，
             所以另外在最上層畫一份不接收滑鼠的外框（白色光暈墊底＋細線） */}
-        {hover && hover !== selected ? <OutlineOverlay items={items} county={hover} className="map-hover" /> : null}
-        {selected ? <OutlineOverlay items={items} county={selected} className="map-selected" /> : null}
+        {overlays}
         <text x="26" y="134" className="county-inset-label">連江縣</text>
         <text x="6" y="238" className="county-inset-label">金門縣</text>
       </svg>
+      {showNorth ? (
+        <div className="stat-map-north">
+          <span className="muted">北部放大</span>
+          <svg viewBox={NORTH_VIEWBOX} aria-hidden="true" style={{ '--map-stroke': strokeWidth / 2.5 } as CSSProperties}>
+            {shapes(true)}
+            {overlays}
+            {NORTH_LABELS.map(([name, x, y]) => (
+              <text key={name} x={x} y={y} className="stat-map-north-label">
+                {name.slice(0, 2)}
+              </text>
+            ))}
+          </svg>
+        </div>
+      ) : null}
       <p className="stat-map-hover" aria-live="polite">
         {focus ? (
           <>

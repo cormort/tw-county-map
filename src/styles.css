@@ -1264,6 +1264,10 @@ a.stat-tile:hover { border-color: #98a2b3; box-shadow: var(--card-base-hover); t
 .stat-map { margin: 0; display: grid; gap: 8px; }
 .stat-map figcaption { font-weight: 700; text-align: center; }
 .stat-map svg { width: 100%; height: auto; max-height: 64vh; }
+.stat-map-north { position: relative; border: 1px dashed var(--rule); border-radius: var(--radius-md); overflow: hidden; }
+.stat-map-north > span { position: absolute; top: 6px; left: 10px; font-size: var(--fs-sm); pointer-events: none; }
+.stat-map-north svg { display: block; width: 100%; height: auto; max-height: none; }
+.stat-map-north-label { font-size: 7px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; fill: var(--ink, #101828); paint-order: stroke; stroke: #fff; stroke-width: 1.6px; pointer-events: none; }
 .stat-map-hover { margin: 0; min-height: 1.5em; text-align: center; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .stat-legend { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .stat-legend i { height: 12px; border-radius: 3px; border: 1px solid var(--rule); }
@@ -1362,11 +1366,15 @@ a.stat-tile:hover { border-color: #98a2b3; box-shadow: var(--card-base-hover); t
 .map-selected .map-ring-line { stroke: var(--ink); stroke-width: 2px; }
 .map-hover .map-ring-halo { opacity: 0.6; stroke-width: 4px; }
 .map-hover .map-ring-line { stroke: var(--accent); stroke-width: 1.75px; }
-.town-ranking { max-height: 640px; overflow-y: auto; }
+/* 鄉鎮地圖：地圖佔滿整個寬度，排行放到下面分欄 */
+.town-ranking { columns: 3 240px; column-gap: var(--space-4); }
+.town-ranking li { break-inside: avoid; }
 .town-ranking li { grid-template-columns: 28px minmax(0, 1fr) auto; }
 .town-ranking li[aria-current='true'] { background: var(--accent-soft); }
-.town-layout { grid-template-columns: minmax(300px, 560px) minmax(0, 1fr); }
-@media (max-width: 860px) { .town-layout { grid-template-columns: 1fr; } }
+.town-layout { grid-template-columns: 1fr; }
+.town-layout .county-map-panel { position: static; }
+.town-layout .stat-map svg { max-height: 80vh; }
+.county-detail-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 
 /* ---------- 我的機關 ---------- */
 .agency-picker { flex: 1 1 280px; max-width: 420px; }
