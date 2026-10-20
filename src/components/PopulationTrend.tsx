@@ -25,12 +25,15 @@ function IndexChart({ months, series }: { months: string[]; series: { name: stri
   const W = 640;
   const H = 240;
   const pad = { l: 44, r: 64, t: 12, b: 26 };
-  const indexed = series.map((s) => ({ ...s, idx: s.values.map((v) => (v === null ? null : (v / s.values[0]!) * 100)) }));
+  const indexed = series.map((s) => {
+    const base = s.values.find((v): v is number => v !== null && v > 0) ?? null;
+    return { ...s, idx: s.values.map((v) => (v === null || base === null ? null : (v / base) * 100)) };
+  });
   const all = indexed.flatMap((s) => s.idx).filter((v): v is number => v !== null);
   const lo = Math.floor(Math.min(...all, 100) - 1);
   const hi = Math.ceil(Math.max(...all, 100) + 1);
-  const x = (i: number) => pad.l + (i / (months.length - 1)) * (W - pad.l - pad.r);
-  const y = (v: number) => pad.t + (1 - (v - lo) / (hi - lo)) * (H - pad.t - pad.b);
+  const x = (i: number) => pad.l + (months.length <= 1 ? 0 : (i / (months.length - 1)) * (W - pad.l - pad.r));
+  const y = (v: number) => pad.t + (1 - (v - lo) / (hi - lo || 1)) * (H - pad.t - pad.b);
   const yearTicks = months.map((m, i) => [m, i] as const).filter(([m]) => m.endsWith('-01') && Number(m.slice(0, 4)) % 2 === 0);
   return (
     <div className="trend-plot">
@@ -75,7 +78,7 @@ function IndexChart({ months, series }: { months: string[]; series: { name: stri
           {indexed.map((s) => (
             <span key={s.name}>
               <i style={{ background: s.color }} aria-hidden="true" />
-              {s.name} {s.values[hover] === null ? '來源缺資料' : `${num(s.values[hover]!)}（${s.idx[hover]!.toFixed(1)}）`}
+              {s.name} {s.values[hover] === null || s.idx[hover] === null ? '來源缺資料' : `${num(s.values[hover]!)}（${s.idx[hover]!.toFixed(1)}）`}
             </span>
           ))}
         </div>
@@ -119,13 +122,13 @@ export function PopulationTrend({ refreshToken, counties, selected, onSelect }: 
   const natA = value(national(fi));
   const natB = value(national(li));
   const current = data.counties.find((c) => c.county === selected) ?? data.counties[0];
-  const nationalMonthly = data.months.map((_, i) => (data.counties[0].monthly[i] === null ? null : data.counties.reduce((s, c) => s + c.monthly[i]!, 0)));
+  const nationalMonthly = data.months.map((_, i) => (data.counties.some((c) => c.monthly[i] === null) ? null : data.counties.reduce((s, c) => s + c.monthly[i]!, 0)));
   const fmtVal = (v: number) => (m.ratio ? `${v.toFixed(2)}%` : num(Math.round(v)));
   const fmtChange = (r: number) => (m.ratio ? `${signed(r, 2)} 個百分點` : `${signed(r, 1)}%`);
 
   // 鄉鎮：起點年 → 最新的人口增減率
   const towns = data.towns
-    .filter((t) => t.population[from] && t.population[latest])
+    .filter((t) => t.population[from] && t.population[latest] && t.size > 0)
     .map((t) => ({ ...t, rate: ((t.population[latest] - t.population[from]) / t.population[from]) * 100, density: t.population[latest] / t.size }));
   const scoped = towns.filter((t) => t.county === current.county).sort((a, b) => b.rate - a.rate);
   const nationalTop = [...towns].sort((a, b) => b.rate - a.rate);
@@ -184,7 +187,7 @@ export function PopulationTrend({ refreshToken, counties, selected, onSelect }: 
             diverging
             title={`${m.label}變化（${from} → ${latest}）`}
             format={(v) => (v === null ? '—' : fmtChange(v))}
-            selected={current.county}
+            selected={selected ?? undefined}
             onSelect={onSelect}
           />
         </section>
@@ -249,7 +252,7 @@ export function PopulationTrend({ refreshToken, counties, selected, onSelect }: 
               {[...rows]
                 .sort((a, b) => b.rate - a.rate)
                 .map((r) => (
-                  <tr key={r.county} aria-current={r.county === current.county ? 'true' : undefined}>
+                  <tr key={r.county} aria-current={selected !== null && r.county === selected ? 'true' : undefined}>
                     <td>
                       <button type="button" className="link-button" onClick={() => onSelect(r.county)}>
                         {r.county}

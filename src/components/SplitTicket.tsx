@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buildUrl } from '../api/client';
 import type { SplitTicketResponse } from '../api/types';
 import { useApi } from '../hooks/useApi';
@@ -102,30 +102,55 @@ export function SplitTicket({ refreshToken, county }: { refreshToken: number; co
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'cand_pres', desc: true });
   const [hover, setHover] = useState<Row | null>(null);
 
-  if (res.phase === 'loading' && !res.data) return <LoadingState label="載入分裂投票資料…" />;
-  if (!res.data) return res.phase === 'error' ? <ErrorState title="無法取得分裂投票（/api/v1/split-ticket）" error={res.error} onRetry={res.reload} /> : null;
+  useEffect(() => {
+    setScope(county ? 'county' : 'all');
+    setHover(null);
+  }, [county]);
 
+  const effectiveScope = county ? scope : 'all';
   const data = res.data;
-  // 該年有推區域立委、也有總統或政黨票的政黨
-  const parties = sortParties(new Set(data.items.flatMap((d) => d.candidates.map((c) => c.party)).filter((p) => p !== '無黨籍' && data.items.some((d) => d.president.votes[p] || d.party_list.votes[p]))));
-  const party = parties.includes(partyChoice) ? partyChoice : parties[0];
-  const color = partyStyle(party).color;
 
-  const all: Row[] = data.items.map((d) => {
-    const cand = d.candidates.filter((c) => c.party === party).sort((a, b) => b.votes - a.votes)[0];
-    const share = (b: { valid: number; votes: Record<string, number> }) => (b.votes[party] === undefined ? null : (b.votes[party] / b.valid) * 100);
-    const c = cand ? cand.pct : null;
-    const p = share(d.president);
-    const l = share(d.party_list);
-    return { county: d.county, district: d.district, name: cand?.name ?? null, elected: Boolean(cand?.elected), cand: c, pres: p, list: l, cand_pres: diff(c, p), cand_list: diff(c, l), pres_list: diff(p, l) };
-  });
-  const rows = (scope === 'county' ? all.filter((r) => r.county === county) : all).sort((a, b) => {
-    if (sort.key === 'district') return a.district.localeCompare(b.district, 'zh-Hant');
-    const x = a[sort.key];
-    const y = b[sort.key];
-    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
-    return (sort.desc ? -1 : 1) * (x - y);
-  });
+  // 該年有推區域立委、也有總統或政黨票的政黨
+  const parties = useMemo(() => {
+    if (!data) return [];
+    return sortParties(
+      new Set(
+        data.items
+          .flatMap((d) => d.candidates.map((c) => c.party))
+          .filter((p) => p !== '無黨籍' && data.items.some((d) => d.president.votes[p] || d.party_list.votes[p])),
+      ),
+    );
+  }, [data]);
+
+  const party = parties.includes(partyChoice) ? partyChoice : parties[0] ?? '民主進步黨';
+
+  const all: Row[] = useMemo(() => {
+    if (!data) return [];
+    return data.items.map((d) => {
+      const cand = d.candidates.filter((c) => c.party === party).sort((a, b) => b.votes - a.votes)[0];
+      const share = (b: { valid: number; votes: Record<string, number> }) => (b.valid <= 0 || b.votes[party] === undefined ? null : (b.votes[party] / b.valid) * 100);
+      const c = cand ? cand.pct : null;
+      const p = share(d.president);
+      const l = share(d.party_list);
+      return { county: d.county, district: d.district, name: cand?.name ?? null, elected: Boolean(cand?.elected), cand: c, pres: p, list: l, cand_pres: diff(c, p), cand_list: diff(c, l), pres_list: diff(p, l) };
+    });
+  }, [data, party]);
+
+  const rows = useMemo(() => {
+    const filtered = effectiveScope === 'county' ? all.filter((r) => r.county === county) : all;
+    return [...filtered].sort((a, b) => {
+      if (sort.key === 'district') return a.district.localeCompare(b.district, 'zh-Hant');
+      const x = a[sort.key];
+      const y = b[sort.key];
+      if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+      return (sort.desc ? -1 : 1) * (x - y);
+    });
+  }, [all, effectiveScope, county, sort]);
+
+  if (res.phase === 'loading' && !data) return <LoadingState label="載入分裂投票資料…" />;
+  if (!data) return res.phase === 'error' ? <ErrorState title="無法取得分裂投票（/api/v1/split-ticket）" error={res.error} onRetry={res.reload} /> : null;
+
+  const color = partyStyle(party).color;
   const withCand = rows.filter((r) => r.cand_pres !== null);
   const ahead = withCand.filter((r) => r.cand_pres! > 0).length;
   const avg = (key: 'cand_pres' | 'cand_list' | 'pres_list') => {
@@ -155,11 +180,11 @@ export function SplitTicket({ refreshToken, county }: { refreshToken: number; co
           </select>
         </label>
         <div className="segmented" role="group" aria-label="範圍">
-          <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
+          <button type="button" aria-pressed={effectiveScope === 'all'} onClick={() => setScope('all')}>
             全部選區
           </button>
           {county ? (
-            <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
+            <button type="button" aria-pressed={effectiveScope === 'county'} onClick={() => setScope('county')}>
               {county}
             </button>
           ) : null}
@@ -193,9 +218,9 @@ export function SplitTicket({ refreshToken, county }: { refreshToken: number; co
             {data.year}・{short}：立委對照總統
           </h2>
           <p className="muted">
-            每點一個立委選區；實心＝當選、空心＝落選。對角線上方＝立委得票率高於同黨總統{scope === 'county' ? `（${county}以實色標示）` : '（滑過點時同縣市以實色標示）'}。
+            每點一個立委選區；實心＝當選、空心＝落選。對角線上方＝立委得票率高於同黨總統{effectiveScope === 'county' ? `（${county}以實色標示）` : '（滑過點時同縣市以實色標示）'}。
           </p>
-          <Scatter rows={all} county={scope === 'county' ? county : hover?.county ?? null} color={color} onHover={setHover} />
+          <Scatter rows={all} county={effectiveScope === 'county' ? county : hover?.county ?? null} color={color} onHover={setHover} />
           <p className="stat-map-hover" aria-live="polite">
             {hover ? (
               <>

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { CountiesResponse, TrendPoint, TrendType } from '../api/types';
 import { partyStyle, sortParties } from '../lib/parties';
 import { ChoroplethMap } from './ChoroplethMap';
@@ -14,7 +14,7 @@ function valuesOf(points: TrendPoint[], party: string, measure: Measure): (numbe
   return points.map((p) => {
     const v = p.votes[party];
     if (v === undefined) return null;
-    return measure === 'votes' ? v : (v / p.valid) * 100;
+    return measure === 'votes' ? v : p.valid > 0 ? (v / p.valid) * 100 : null;
   });
 }
 
@@ -54,7 +54,7 @@ function nationalPoints(data: CountiesResponse, type: TrendType): TrendPoint[] {
 /** 主要政黨：任一次全國得票率 ≥ 3% */
 function mainParties(points: TrendPoint[]): string[] {
   const set = new Set<string>();
-  for (const p of points) for (const [party, v] of Object.entries(p.votes)) if (v / p.valid >= 0.03) set.add(party);
+  for (const p of points) for (const [party, v] of Object.entries(p.votes)) if (p.valid > 0 && v / p.valid >= 0.03) set.add(party);
   return sortParties(set);
 }
 
@@ -68,11 +68,15 @@ function TrendChart({ points, parties, measure, title }: { points: TrendPoint[];
   const H = 280;
   const pad = { l: 64, r: 92, t: 16, b: 28 };
   const years = points.map((p) => p.label);
-  const lines = parties.map((party) => {
-    const values = valuesOf(points, party, measure);
-    const diffs = diffsOf(values);
-    return { party, values, diffs, turns: turnsOf(diffs) };
-  });
+  const lines = useMemo(
+    () =>
+      parties.map((party) => {
+        const values = valuesOf(points, party, measure);
+        const diffs = diffsOf(values);
+        return { party, values, diffs, turns: turnsOf(diffs) };
+      }),
+    [points, parties, measure],
+  );
   const all = lines.flatMap((l) => l.values).filter((v): v is number => v !== null);
   const max = Math.max(...all) * 1.08 || 1;
   const x = (i: number) => pad.l + (years.length === 1 ? 0 : (i / (years.length - 1)) * (W - pad.l - pad.r));
@@ -184,30 +188,43 @@ function TrendChart({ points, parties, measure, title }: { points: TrendPoint[];
 export function VoteTrends({ data, selected, onSelect }: { data: CountiesResponse; selected: string | null; onSelect: (county: string) => void }) {
   const [type, setType] = useState<TrendType>('president');
   const [measure, setMeasure] = useState<Measure>('votes');
-  const national = nationalPoints(data, type);
-  const parties = mainParties(national);
+  const national = useMemo(() => nationalPoints(data, type), [data, type]);
+  const parties = useMemo(() => mainParties(national), [national]);
   const [partyChoice, setParty] = useState('民主進步黨');
   const party = parties.includes(partyChoice) ? partyChoice : parties[0];
-  const [scope, setScope] = useState<'county' | 'national'>('county');
+  const [scope, setScope] = useState<'county' | 'national'>(selected ? 'county' : 'national');
+
+  useEffect(() => {
+    setScope(selected ? 'county' : 'national');
+  }, [selected]);
+
   const county = data.items.find((c) => c.county === selected) ?? data.items[0];
   const years = national.map((p) => p.label);
   const label = data.trend_types[type];
 
-  const rows = [
-    { name: NATIONAL, points: national },
-    ...data.items.map((c) => ({ name: c.county, points: c.trends[type] })),
-  ].map((r) => {
-    const values = valuesOf(r.points, party, measure);
-    const diffs = diffsOf(values);
-    return { ...r, values, diffs, turns: turnsOf(diffs) };
-  });
+  const rows = useMemo(
+    () =>
+      [
+        { name: NATIONAL, points: national },
+        ...data.items.map((c) => ({ name: c.county, points: c.trends[type] })),
+      ].map((r) => {
+        const values = valuesOf(r.points, party, measure);
+        const diffs = diffsOf(values);
+        return { ...r, values, diffs, turns: turnsOf(diffs) };
+      }),
+    [national, data.items, type, party, measure],
+  );
   // 地圖：最近一次與前一次相比的增減率（得票率則為增減百分點）
-  const latest = new Map(
-    rows.slice(1).map((r) => {
-      const a = r.values.at(-2) ?? null;
-      const b = r.values.at(-1) ?? null;
-      return [r.name, a === null || b === null ? null : measure === 'votes' ? ((b - a) / a) * 100 : b - a];
-    }),
+  const latest = useMemo(
+    () =>
+      new Map(
+        rows.slice(1).map((r) => {
+          const a = r.values.at(-2) ?? null;
+          const b = r.values.at(-1) ?? null;
+          return [r.name, a === null || b === null ? null : measure === 'votes' ? (a === 0 ? null : ((b - a) / a) * 100) : b - a];
+        }),
+      ),
+    [rows, measure],
   );
   const short = partyStyle(party).short;
   const last2 = `${years.at(-2)} → ${years.at(-1)}`;
@@ -251,7 +268,7 @@ export function VoteTrends({ data, selected, onSelect }: { data: CountiesRespons
             diverging
             title={`${label}・${short}${measure === 'votes' ? '得票增減率' : '得票率增減'}（${last2}）`}
             format={(v) => (v === null ? '無可比較資料' : measure === 'votes' ? `${signed(v, 1)}%` : `${signed(v, 2)} 個百分點`)}
-            selected={county.county}
+            selected={selected ?? undefined}
             onSelect={onSelect}
           />
         </section>
@@ -295,7 +312,7 @@ export function VoteTrends({ data, selected, onSelect }: { data: CountiesRespons
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.name} aria-current={r.name === county.county ? 'true' : undefined} className={r.name === NATIONAL ? 'trend-total' : undefined}>
+                <tr key={r.name} aria-current={selected !== null && r.name === selected ? 'true' : undefined} className={r.name === NATIONAL ? 'trend-total' : undefined}>
                   <td>
                     {r.name === NATIONAL ? (
                       <b>{r.name}</b>

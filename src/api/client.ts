@@ -61,15 +61,32 @@ export interface RequestOptions {
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { signal } = options;
+  const { signal, timeoutMs = 15000 } = options;
   const slug = slugFor(path);
   const root = `${import.meta.env.BASE_URL}data`.replace(/\/{2,}/g, '/');
+  const candidates = [...new Set([slug, slug.split('-year-')[0]])];
 
-  for (const candidate of [slug, slugFor(path).split('-year-')[0]]) {
-    if (signal?.aborted) throw new ApiError('請求已取消', { code: 'aborted' });
-    const response = await fetch(`${root}/${candidate}.json`, { signal });
-    if (!response.ok) continue;
-    return (await response.json()) as T;
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  let timedOut = false;
+  const timer = timeoutMs > 0 ? setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs) : undefined;
+
+  try {
+    for (const candidate of candidates) {
+      if (signal?.aborted) throw new ApiError('請求已取消', { code: 'aborted' });
+      const response = await fetch(`${root}/${candidate}.json`, { signal: controller.signal });
+      if (!response.ok) continue;
+      return (await response.json()) as T;
+    }
+  } catch (err) {
+    if (signal?.aborted) throw new ApiError('請求已取消', { code: 'aborted', cause: err });
+    if (timedOut) throw new ApiError('讀取資料逾時', { code: 'timeout', cause: err });
+    throw toApiError(err);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
   }
+
   throw new ApiError(`這份快照裡沒有 ${slug}（重跑 npm run snapshot 可以補）`, { status: 404, code: 'not_found' });
 }

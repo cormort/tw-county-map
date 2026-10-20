@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { buildUrl } from '../api/client';
 import type { LegislatorVotesResponse, PartyShare } from '../api/types';
 import { useApi } from '../hooks/useApi';
@@ -28,7 +28,7 @@ function ShareCell({ share }: { share: PartyShare | null }) {
  * 個人票對照政黨票：最近一次大選，委員得票率減去同選區同黨的不分區政黨票（或總統票）得票率。
  * 正值＝個人比黨強，負值＝靠黨拉抬。長條以 0 為中心。
  */
-function PersonalVsParty({ items, year, onOpenId }: { items: LegislatorVotesResponse['items']; year: number; onOpenId: (id: string) => void }) {
+function PersonalVsParty({ items, year, onOpenId }: { items: LegislatorVotesResponse['items']; year: number; onOpenId?: (id: string) => void }) {
   const [basis, setBasis] = useState<Basis>('party_list');
   // 只比最近一次大選（本屆），避免拿多年前、不同黨籍的參選紀錄來比
   const rows = items
@@ -61,9 +61,13 @@ function PersonalVsParty({ items, year, onOpenId }: { items: LegislatorVotesResp
           const w = (Math.abs(share.over_pct) / max) * 50;
           return (
             <li key={l.id}>
-              <button type="button" className="link-button" onClick={() => onOpenId(l.id)}>
-                {l.name}
-              </button>
+              {onOpenId ? (
+                <button type="button" className="link-button" onClick={() => onOpenId(l.id)}>
+                  {l.name}
+                </button>
+              ) : (
+                <b>{l.name}</b>
+              )}
               <PartyTag party={h.party} />
               <span className="pvp-bar" aria-hidden="true">
                 <i style={share.over_pct >= 0 ? { left: '50%', width: `${w}%` } : { left: `${50 - w}%`, width: `${w}%` }} />
@@ -86,10 +90,16 @@ function PersonalVsParty({ items, year, onOpenId }: { items: LegislatorVotesResp
  * 立委得票追蹤：在職委員 2012 起每次參選區域／原住民立委的得票、名次、與對手差距、與自己上一次的增減。
  * 增減方向與上一次相反時標「轉折」。不分區委員若未曾參選區域則沒有紀錄。
  */
-export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshToken: number; county: string | null; onOpenId: (id: string) => void }) {
+export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshToken: number; county: string | null; onOpenId?: (id: string) => void }) {
   const res = useApi<LegislatorVotesResponse>(buildUrl('/legislator-votes'), { refreshToken });
   const [scope, setScope] = useState<'county' | 'all'>(county ? 'county' : 'all');
   const [q, setQ] = useState('');
+
+  useEffect(() => {
+    setScope(county ? 'county' : 'all');
+  }, [county]);
+
+  const effectiveScope = county ? scope : 'all';
 
   if (res.phase === 'loading' && !res.data) return <LoadingState label="載入立委得票…" />;
   if (!res.data) return res.phase === 'error' ? <ErrorState title="無法取得立委得票（/api/v1/legislator-votes）" error={res.error} onRetry={res.reload} /> : null;
@@ -97,7 +107,7 @@ export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshTok
   const keyword = q.trim();
   const items = res.data.items.filter((i) => {
     if (keyword) return i.legislator.name.includes(keyword) || (i.legislator.area_name ?? '').includes(keyword);
-    return scope === 'all' || i.legislator.region === county;
+    return effectiveScope === 'all' || i.legislator.region === county;
   });
   const withHistory = items.filter((i) => i.history.length);
 
@@ -106,11 +116,11 @@ export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshTok
       <div className="stat-controls">
         <div className="segmented" role="group" aria-label="範圍">
           {county ? (
-            <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
+            <button type="button" aria-pressed={effectiveScope === 'county'} onClick={() => setScope('county')}>
               {county}
             </button>
           ) : null}
-          <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
+          <button type="button" aria-pressed={effectiveScope === 'all'} onClick={() => setScope('all')}>
             {ALL}委員
           </button>
         </div>
@@ -123,7 +133,7 @@ export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshTok
         </span>
       </div>
 
-      {withHistory.length === 0 ? <p className="muted">此範圍沒有區域或原住民立委的參選紀錄（{county}可能只有不分區委員）。</p> : null}
+      {withHistory.length === 0 ? <p className="muted">此範圍沒有區域或原住民立委的參選紀錄（{county ?? '此範圍'}可能只有不分區委員）。</p> : null}
 
       <PersonalVsParty items={withHistory} year={res.data.years[res.data.years.length - 1]} onOpenId={onOpenId} />
 
@@ -132,9 +142,13 @@ export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshTok
           <section key={l.id} className="panel legislator-votes-card" aria-label={`${l.name}得票紀錄`}>
             <div className="sectionhead">
               <h3>
-                <button type="button" className="name-button" onClick={() => onOpenId(l.id)}>
-                  {l.name}
-                </button>{' '}
+                {onOpenId ? (
+                  <button type="button" className="name-button" onClick={() => onOpenId(l.id)}>
+                    {l.name}
+                  </button>
+                ) : (
+                  <b>{l.name}</b>
+                )}{' '}
                 <PartyTag party={l.party} /> <small className="muted">{l.area_name}</small>
               </h3>
             </div>

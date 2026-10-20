@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buildUrl } from '../api/client';
 import type { DemographicsResponse, DemographicTown } from '../api/types';
 import { useApi } from '../hooks/useApi';
@@ -17,7 +17,7 @@ type ElectionKey = 'president_2024' | 'party_list_2024' | 'president_2020' | 'pa
 
 const share = (t: DemographicTown, e: ElectionKey, party: string) => {
   const b = t.elections[e];
-  return b && b.votes[party] !== undefined ? (b.votes[party] / b.valid) * 100 : null;
+  return b && b.valid > 0 && b.votes[party] !== undefined ? (b.votes[party] / b.valid) * 100 : null;
 };
 
 /** 皮爾森相關係數；w 為權重（人口），省略則等權 */
@@ -26,6 +26,7 @@ function pearson(xs: number[], ys: number[], w?: number[]): number | null {
   if (n < 3) return null;
   const ws = w ?? xs.map(() => 1);
   const W = ws.reduce((s, v) => s + v, 0);
+  if (!W) return null;
   const mx = xs.reduce((s, v, i) => s + v * ws[i], 0) / W;
   const my = ys.reduce((s, v, i) => s + v * ws[i], 0) / W;
   let sxy = 0;
@@ -42,6 +43,7 @@ function pearson(xs: number[], ys: number[], w?: number[]): number | null {
 /** 最小平方法迴歸線（等權） */
 function fit(xs: number[], ys: number[]) {
   const n = xs.length;
+  if (!n) return { slope: 0, intercept: 0 };
   const mx = xs.reduce((s, v) => s + v, 0) / n;
   const my = ys.reduce((s, v) => s + v, 0) / n;
   const sxx = xs.reduce((s, v) => s + (v - mx) ** 2, 0);
@@ -67,13 +69,15 @@ function Scatter({ points, focus, color, xLabel, yLabel, onHover }: { points: Po
   const W = 520;
   const H = 380;
   const pad = { l: 48, r: 14, t: 12, b: 40 };
+  const sorted = useMemo(() => [...points].sort((a, b) => b.t.population - a.t.population), [points]);
+  if (!points.length) return null;
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);
   const [x0, x1] = [Math.floor(Math.min(...xs)), Math.ceil(Math.max(...xs))];
   const [y0, y1] = [Math.max(0, Math.floor(Math.min(...ys) / 5) * 5), Math.min(100, Math.ceil(Math.max(...ys) / 5) * 5)];
   const sx = (v: number) => pad.l + ((v - x0) / (x1 - x0 || 1)) * (W - pad.l - pad.r);
   const sy = (v: number) => H - pad.b - ((v - y0) / (y1 - y0 || 1)) * (H - pad.t - pad.b);
-  const maxPop = Math.max(...points.map((p) => p.t.population));
+  const maxPop = Math.max(...points.map((p) => p.t.population), 1);
   const { slope, intercept } = fit(xs, ys);
   const xTicks = Array.from({ length: 5 }, (_, i) => x0 + ((x1 - x0) * i) / 4);
   const yTicks = Array.from({ length: 5 }, (_, i) => y0 + ((y1 - y0) * i) / 4);
@@ -96,27 +100,25 @@ function Scatter({ points, focus, color, xLabel, yLabel, onHover }: { points: Po
         {xLabel} →
       </text>
       {/* 泡泡大小＝人口；所選縣市實色，其餘淡色 */}
-      {[...points]
-        .sort((a, b) => b.t.population - a.t.population)
-        .map((p) => {
-          const on = focus === null || p.t.county === focus;
-          return (
-            <circle
-              key={p.t.county + p.t.town}
-              cx={sx(p.x)}
-              cy={sy(p.y)}
-              r={2 + 10 * Math.sqrt(p.t.population / maxPop)}
-              fill={color}
-              fillOpacity={on ? 0.45 : 0.08}
-              stroke={on ? color : 'none'}
-              strokeWidth="1"
-              onMouseEnter={() => onHover(p)}
-              onMouseLeave={() => onHover(null)}
-            >
-              <title>{`${p.t.county}${p.t.town}：${xLabel} ${p.x}、${yLabel} ${p.y.toFixed(2)}%`}</title>
-            </circle>
-          );
-        })}
+      {sorted.map((p) => {
+        const on = focus === null || p.t.county === focus;
+        return (
+          <circle
+            key={p.t.county + p.t.town}
+            cx={sx(p.x)}
+            cy={sy(p.y)}
+            r={2 + 10 * Math.sqrt(p.t.population / maxPop)}
+            fill={color}
+            fillOpacity={on ? 0.45 : 0.08}
+            stroke={on ? color : 'none'}
+            strokeWidth="1"
+            onMouseEnter={() => onHover(p)}
+            onMouseLeave={() => onHover(null)}
+          >
+            <title>{`${p.t.county}${p.t.town}：${xLabel} ${p.x}、${yLabel} ${p.y.toFixed(2)}%`}</title>
+          </circle>
+        );
+      })}
       <line x1={sx(x0)} y1={sy(intercept + slope * x0)} x2={sx(x1)} y2={sy(intercept + slope * x1)} stroke="var(--ink)" strokeWidth="2" strokeDasharray="6 4" />
     </svg>
   );
@@ -134,34 +136,66 @@ export function Demographics({ refreshToken, county }: { refreshToken: number; c
   const [scope, setScope] = useState<'all' | 'county'>(county ? 'county' : 'all');
   const [hover, setHover] = useState<Point | null>(null);
 
-  if (res.phase === 'loading' && !res.data) return <LoadingState label="載入鄉鎮人口與得票…" />;
-  if (!res.data) return res.phase === 'error' ? <ErrorState title="無法取得人口與得票（/api/v1/demographics）" error={res.error} onRetry={res.reload} /> : null;
+  useEffect(() => {
+    setScope(county ? 'county' : 'all');
+    setHover(null);
+  }, [county]);
 
+  const effectiveScope = county ? scope : 'all';
   const data = res.data;
-  const towns = scope === 'county' ? data.towns.filter((t) => t.county === county) : data.towns;
-  // 主要政黨：該次全國得票率 ≥ 3%
-  const national: Record<string, number> = {};
-  let valid = 0;
-  for (const t of data.towns) {
-    const b = t.elections[election];
-    if (!b) continue;
-    valid += b.valid;
-    for (const [p, v] of Object.entries(b.votes)) national[p] = (national[p] ?? 0) + v;
-  }
-  const parties = sortParties(Object.keys(national).filter((p) => p !== '無黨籍' && national[p] / valid >= 0.03));
-  const party = parties.includes(partyChoice) ? partyChoice : parties[0];
+
+  const parties = useMemo(() => {
+    if (!data) return [];
+    // 主要政黨：該次全國得票率 ≥ 3%
+    const national: Record<string, number> = {};
+    let valid = 0;
+    for (const t of data.towns) {
+      const b = t.elections[election];
+      if (!b) continue;
+      valid += b.valid;
+      for (const [p, v] of Object.entries(b.votes)) national[p] = (national[p] ?? 0) + v;
+    }
+    return sortParties(Object.keys(national).filter((p) => p !== '無黨籍' && valid > 0 && national[p] / valid >= 0.03));
+  }, [data, election]);
+
+  const party = parties.includes(partyChoice) ? partyChoice : parties[0] ?? '民主進步黨';
+
+  const towns = useMemo(() => {
+    if (!data) return [];
+    return effectiveScope === 'county' ? data.towns.filter((t) => t.county === county) : data.towns;
+  }, [data, effectiveScope, county]);
+
+  const matrix = useMemo(() => {
+    const map = new Map<string, { points: Point[]; r: number | null; rw: number | null; slope: number }>();
+    for (const k of Object.keys(X_VARS) as XKey[]) {
+      for (const p of parties) {
+        const pts: Point[] = towns.flatMap((t) => {
+          const y = share(t, election, p);
+          return y === null ? [] : [{ t, x: t[k], y }];
+        });
+        const xs = pts.map((q) => q.x);
+        const ys = pts.map((q) => q.y);
+        const r = pearson(xs, ys);
+        const rw = pearson(xs, ys, pts.map((q) => q.t.population));
+        const { slope } = pts.length > 2 ? fit(xs, ys) : { slope: 0 };
+        map.set(`${k}:${p}`, { points: pts, r, rw, slope });
+      }
+    }
+    return map;
+  }, [towns, election, parties]);
+
+  const currentCell = matrix.get(`${xKey}:${party}`);
+  const points = useMemo(() => currentCell?.points ?? [], [currentCell]);
+  const sortedPoints = useMemo(() => [...points].sort((a, b) => b.y - a.y), [points]);
+
+  if (res.phase === 'loading' && !data) return <LoadingState label="載入鄉鎮人口與得票…" />;
+  if (!data) return res.phase === 'error' ? <ErrorState title="無法取得人口與得票（/api/v1/demographics）" error={res.error} onRetry={res.reload} /> : null;
+
   const color = partyStyle(party).color;
   const x = X_VARS[xKey];
-
-  const pointsFor = (key: XKey, p: string): Point[] =>
-    towns.flatMap((t) => {
-      const y = share(t, election, p);
-      return y === null ? [] : [{ t, x: t[key], y }];
-    });
-  const points = pointsFor(xKey, party);
-  const r = pearson(points.map((p) => p.x), points.map((p) => p.y));
-  const rw = pearson(points.map((p) => p.x), points.map((p) => p.y), points.map((p) => p.t.population));
-  const { slope } = points.length > 2 ? fit(points.map((p) => p.x), points.map((p) => p.y)) : { slope: 0 };
+  const r = currentCell?.r ?? null;
+  const rw = currentCell?.rw ?? null;
+  const slope = currentCell?.slope ?? 0;
   const yLabel = `${partyStyle(party).short}得票率`;
 
   return (
@@ -198,11 +232,11 @@ export function Demographics({ refreshToken, county }: { refreshToken: number; c
           </select>
         </label>
         <div className="segmented" role="group" aria-label="範圍">
-          <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
+          <button type="button" aria-pressed={effectiveScope === 'all'} onClick={() => setScope('all')}>
             全國 368 鄉鎮
           </button>
           {county ? (
-            <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
+            <button type="button" aria-pressed={effectiveScope === 'county'} onClick={() => setScope('county')}>
               {county}
             </button>
           ) : null}
@@ -238,8 +272,8 @@ export function Demographics({ refreshToken, county }: { refreshToken: number; c
           <h2>
             {x.label} × {data.elections[election]}・{yLabel}
           </h2>
-          <p className="muted">每個泡泡是一個鄉鎮市區，大小＝人口；虛線為迴歸線。{scope === 'county' ? '' : '滑過泡泡時同縣市以實色標示。'}</p>
-          <Scatter points={points} focus={scope === 'county' ? null : hover?.t.county ?? null} color={color} xLabel={`${x.label}（${x.unit}）`} yLabel={yLabel} onHover={setHover} />
+          <p className="muted">每個泡泡是一個鄉鎮市區，大小＝人口；虛線為迴歸線。{effectiveScope === 'county' ? '' : '滑過泡泡時同縣市以實色標示。'}</p>
+          <Scatter points={points} focus={effectiveScope === 'county' ? null : hover?.t.county ?? null} color={color} xLabel={`${x.label}（${x.unit}）`} yLabel={yLabel} onHover={setHover} />
           <p className="stat-map-hover" aria-live="polite">
             {hover ? (
               <>
@@ -279,11 +313,9 @@ export function Demographics({ refreshToken, county }: { refreshToken: number; c
                       </button>
                     </th>
                     {parties.map((p) => {
-                      const pts = pointsFor(k, p);
-                      const xs = pts.map((q) => q.x);
-                      const ys = pts.map((q) => q.y);
-                      const v = pearson(xs, ys);
-                      const vw = pearson(xs, ys, pts.map((q) => q.t.population));
+                      const cell = matrix.get(`${k}:${p}`);
+                      const v = cell?.r ?? null;
+                      const vw = cell?.rw ?? null;
                       return (
                         <td key={p} className={`num${v !== null && Math.abs(v) >= 0.4 ? ' corr-strong' : ''}`} title={strength(v)}>
                           <button type="button" className="link-button" onClick={() => (setX(k), setParty(p))}>
@@ -310,22 +342,20 @@ export function Demographics({ refreshToken, county }: { refreshToken: number; c
                 </tr>
               </thead>
               <tbody>
-                {[...points]
-                  .sort((a, b) => b.y - a.y)
-                  .map((p) => (
-                    <tr key={p.t.county + p.t.town} aria-current={hover?.t === p.t ? 'true' : undefined}>
-                      <td>
-                        {p.t.county}
-                        {p.t.town}
-                      </td>
-                      <td className="num">{p.t.population.toLocaleString('zh-TW')}</td>
-                      <td className="num">
-                        {p.x}
-                        {x.unit}
-                      </td>
-                      <td className="num">{p.y.toFixed(2)}%</td>
-                    </tr>
-                  ))}
+                {sortedPoints.map((p) => (
+                  <tr key={p.t.county + p.t.town} aria-current={hover?.t === p.t ? 'true' : undefined}>
+                    <td>
+                      {p.t.county}
+                      {p.t.town}
+                    </td>
+                    <td className="num">{p.t.population.toLocaleString('zh-TW')}</td>
+                    <td className="num">
+                      {p.x}
+                      {x.unit}
+                    </td>
+                    <td className="num">{p.y.toFixed(2)}%</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

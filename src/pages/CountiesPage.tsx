@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState } from 'react';
 import { buildUrl } from '../api/client';
 import type { CountiesResponse, CountyElection, CountyElectionKey, CountyItem, CountyStatsResponse, CouncilResponse } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/DataStates';
@@ -14,6 +14,7 @@ import { VoteTrends } from '../components/VoteTrends';
 import { CouncilSeats } from '../components/CouncilSeats';
 import { CustomData } from '../components/CustomData';
 import { CountyOverview } from '../components/CountyOverview';
+import { PartyTag } from '../components/PartyTag';
 import { mergeStats } from '../lib/customData';
 import { COMPARE_NOTES, noteFor } from '../lib/metricNotes';
 import { Tip, noteText } from '../components/Tip';
@@ -27,8 +28,8 @@ export interface CountiesPageProps {
   /** 視角：「全國」或縣市名稱（header 的選單，全站共用） */
   scope: string;
   onScopeChange: (scope: string) => void;
-  onOpenId: (id: string) => void;
-  onNavigate: (href: string) => void;
+  onOpenId?: (id: string) => void;
+  onNavigate?: (href: string) => void;
 }
 
 /* ---------- 指標 ---------- */
@@ -291,15 +292,6 @@ export function resolveCounty<T extends { county: string }>(items: T[], wanted: 
 
 /* ---------- 縣市詳情（選舉表） ---------- */
 
-function PartyTag({ party }: { party: string }) {
-  const style = partyStyle(party);
-  return (
-    <span className="party-tag" style={{ '--party': style.color } as CSSProperties}>
-      {style.short}
-    </span>
-  );
-}
-
 /** 一場選舉：各候選人得票、與前次同黨得票的增減、第一名與第二名的差距 */
 function ElectionTable({ title, current, previous, previousLabel }: { title: string; current: CountyElection; previous: CountyElection; previousLabel: string }) {
   const [first, second] = current.candidates;
@@ -364,7 +356,7 @@ function ElectionTable({ title, current, previous, previousLabel }: { title: str
  * elections＝目前是「選舉」主題：才顯示議員席次、立委與選舉表（首頁預設是人口，不載入選舉的東西）；
  * 其他主題（醫療、房價…）改列該主題各指標在這個縣市的數值。
  */
-function CountyDetail({ county, data, councilCounties, elections, topicMetrics, onShowTowns, onOpenId, onNavigate }: { county: CountyItem; data: CountiesResponse; councilCounties: string[]; elections: boolean; topicMetrics: Metric[]; onShowTowns: () => void; onOpenId: (id: string) => void; onNavigate: (href: string) => void }) {
+function CountyDetail({ county, data, councilCounties, elections, topicMetrics, onShowTowns, onOpenId }: { county: CountyItem; data: CountiesResponse; councilCounties: string[]; elections: boolean; topicMetrics: Metric[]; onShowTowns: () => void; onOpenId?: (id: string) => void; onNavigate?: (href: string) => void }) {
   const e = data.elections;
   return (
     <section className="panel county-detail" aria-label={`${county.county}詳細資料`}>
@@ -397,9 +389,13 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
             {county.legislators.length ? (
               county.legislators.map((l) => (
                 <span key={l.id} className="county-legislator">
-                  <button type="button" className="name-button" onClick={() => onOpenId(l.id)}>
-                    {l.name}
-                  </button>
+                  {onOpenId ? (
+                    <button type="button" className="name-button" onClick={() => onOpenId(l.id)}>
+                      {l.name}
+                    </button>
+                  ) : (
+                    <b>{l.name}</b>
+                  )}
                   <PartyTag party={l.party} />
                   <small className="muted">{l.area_name}</small>
                 </span>
@@ -752,6 +748,7 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
   const isElection = metrics.find((m) => m.key === metricKey)?.category === '選舉';
   const council = useApi<Pick<CouncilResponse, 'counties'>>(isElection ? buildUrl('/council', { only: 'counties' }) : null, { refreshToken });
   const pairs = useMemo(() => (res.data ? buildPairs(metrics, res.data) : []), [metrics, res.data]);
+  const countyByName = useMemo(() => new Map((res.data?.items ?? []).map((c) => [c.county, c])), [res.data]);
 
   if (res.phase === 'error') return <ErrorState title="無法取得縣市資料（/api/v1/counties）" error={res.error} onRetry={res.reload} />;
   // empty 相位仍然帶著 data（useApi 的四態契約），所以「!res.data」這條永遠攔不到空清單；
@@ -767,11 +764,14 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
   const topic = topicParam === '自訂' ? '自訂' : metric.category;
   const topicMetrics = metrics.filter((m) => m.category === topic);
   const tabs = TABS.filter((t) => tabsFor(topic).includes(t.key));
-  // 換主題後原本的分頁可能不在這個主題裡（例如醫療沒有「得票趨勢」）：落回互動地圖
+  // 換主題後原本的分頁可能不在這個主題裡（例如醫療沒有「得票趨勢」）：落回縣市總覽
   const tab = tabs.some((t) => t.key === tabParam) ? tabParam : 'overview';
   const chooseTopic = (c: string) => {
     setTopicParam(c === '自訂' ? '自訂' : '');
-    const first = metrics.find((m) => m.category === c);
+    const candidates = metrics.filter((m) => m.category === c);
+    const matchingKind = kindFilter === 'all' ? candidates : candidates.filter((m) => m.kind === kindFilter);
+    if (!matchingKind.length && candidates.length) setKindFilter('all');
+    const first = matchingKind[0] ?? candidates[0];
     if (first) setMetricKey(first.key);
   };
   const metric2 = metrics.find((m) => m.key === metric2Key) ?? metrics[1];
@@ -785,19 +785,20 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
     );
   }
   const focus = current?.county ?? null;
-  // 沒有任何可對比的兩場選舉時，後面的 pair.older.value 會 TypeError（不只「時間差異」分頁）
-  if (!pair && (tab === 'dual' || tab === 'compare' || tab === 'trend')) {
+  if (!pair && tab === 'compare') {
     return <EmptyState message="目前沒有可對比的兩場選舉" hint="需要同一類選舉至少兩屆的資料。" />;
   }
   const mapValues = (m: Metric) => new Map(items.map((c) => [c.county, m.value(c)]));
   const formatOf = (m: Metric) => (v: number | null) => fmt(v, m.unit, m.digits);
 
   // 時間差異：變化率 =（新 − 舊）÷ 舊
-  const compareRows = items.map((c) => {
-    const a = pair.older.value(c);
-    const b = pair.newer.value(c);
-    return { county: c.county, a, b, diff: a === null || b === null ? null : b - a, rate: a === null || b === null || a === 0 ? null : ((b - a) / a) * 100 };
-  });
+  const compareRows = pair
+    ? items.map((c) => {
+        const a = pair.older.value(c);
+        const b = pair.newer.value(c);
+        return { county: c.county, a, b, diff: a === null || b === null ? null : b - a, rate: a === null || b === null || a === 0 ? null : ((b - a) / a) * 100 };
+      })
+    : [];
   const rateFormat = (v: number | null) => (v === null ? '無可比較資料' : `${signed(v, 1)}%`);
 
   const exportCsv = () =>
@@ -858,7 +859,7 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
               options={
                 kindFilter === 'all'
                   ? topicMetrics
-                  : topicMetrics.filter((m) => m.kind === kindFilter)
+                  : topicMetrics.filter((m) => m.kind === kindFilter || m.key === metric.key)
               }
               value={metric.key}
               onChange={setMetricKey}
@@ -907,7 +908,7 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
         )}
         {/* 分頁專用的選單也放在這一列，不要散在分頁按鈕下面 */}
         {tab === 'dual' ? <MetricSelect label="第二個分析指標" options={metrics} value={metric2.key} onChange={setMetric2Key} /> : null}
-        {tab === 'compare' ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
+        {tab === 'compare' && pair ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
         <span className="muted">資料期：{data.population_month}</span>
       </div>
       {tab === 'compare' && pair ? <CompareNote metricKey={pair.newer.key} /> : <MetricNote metricKey={metric.key} />}
@@ -938,7 +939,7 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
               colorOf={
                 metric.partyOf
                   ? (county) => {
-                      const c = items.find((x) => x.county === county);
+                      const c = countyByName.get(county);
                       const p = c && metric.partyOf ? metric.partyOf(c) : null;
                       return p ? partyStyle(p).color : null;
                     }
@@ -957,7 +958,7 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
               formatCounty={
                 metric.partyOf
                   ? (county) => {
-                      const c = items.find((x) => x.county === county);
+                      const c = countyByName.get(county);
                       const cand = c && metric.election ? c.elections[metric.election].candidates[0] : null;
                       return cand ? `${county}：${cand.party}（${cand.name} ${cand.pct.toFixed(2)}%）` : `${county}：無資料`;
                     }
@@ -997,7 +998,7 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
 
       {tab === 'legislators' ? <LegislatorVotes refreshToken={refreshToken} county={focus} onOpenId={onOpenId} /> : null}
 
-      {tab === 'towns' ? <TownMap refreshToken={refreshToken} counties={data} county={focus} /> : null}
+      {tab === 'towns' ? <TownMap refreshToken={refreshToken} counties={data} county={focus} onSelectCounty={setSelected} /> : null}
 
       {tab === 'population' ? <PopulationTrend refreshToken={refreshToken} counties={data} selected={focus} onSelect={setSelected} /> : null}
 

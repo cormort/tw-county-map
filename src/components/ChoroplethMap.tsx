@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { colorAt, gradient, type ScaleName } from '../lib/colorScales';
 
 /**
@@ -59,59 +59,74 @@ export function ChoroplethMap({
   legendItems?: { label: string; color: string }[];
 }) {
   const [hover, setHover] = useState<string | null>(null);
+
   // 只採計「有限的數字」：undefined（Map 沒有這個鍵、或資料檔少了欄位）與 NaN（除以 0、
   // 基期缺值）都會讓 Math.min/Math.max 變成 NaN，色階算出來是 NaN，而 NaN 進到 CSS fill
   // 會被瀏覽器直接忽略 —— 整張圖沒有顏色，且不會有任何錯誤訊息。
-  const nums = [...values.values()].filter((v): v is number => Number.isFinite(v));
-  let min = nums.length ? Math.min(...nums) : 0;
-  let max = nums.length ? Math.max(...nums) : 0;
-  if (diverging) {
-    const m = Math.max(Math.abs(min), Math.abs(max)) || 1;
-    [min, max] = [-m, m];
-  }
-  const t = (v: number) => (max === min ? 1 : (v - min) / (max - min));
-  const focus = hover ?? selected ?? null;
-  const showNorth = NORTH.every((n) => items.some((c) => c.county === n));
-  // inset：放大圖裡的區塊不進 Tab 順序（主地圖已經有同一個縣市，不要讓鍵盤走兩遍）
-  const ordered = [...items].sort((a, b) => Number(ENCLAVES.includes(a.county)) - Number(ENCLAVES.includes(b.county)));
-  const shapes = (inset: boolean) =>
-    ordered.map((c) => {
+  const { min, max, hasNums } = useMemo(() => {
+    const nums = [...values.values()].filter((v): v is number => Number.isFinite(v));
+    let lo = nums.length ? Math.min(...nums) : 0;
+    let hi = nums.length ? Math.max(...nums) : 0;
+    if (diverging) {
+      const m = Math.max(Math.abs(lo), Math.abs(hi)) || 1;
+      [lo, hi] = [-m, m];
+    }
+    return { min: lo, max: hi, hasNums: nums.length > 0 };
+  }, [values, diverging]);
+
+  const pathByCounty = useMemo(() => new Map(items.map((c) => [c.county, c.path])), [items]);
+  const showNorth = useMemo(() => NORTH.every((n) => pathByCounty.has(n)), [pathByCounty]);
+  const ordered = useMemo(
+    () => [...items].sort((a, b) => Number(ENCLAVES.includes(a.county)) - Number(ENCLAVES.includes(b.county))),
+    [items],
+  );
+
+  // 預先算好每個區塊的填色與標籤，避免滑過 368 個鄉鎮時每次 mousemove 重算色階插值
+  const prepared = useMemo(() => {
+    const t = (v: number) => (max === min ? 1 : (v - min) / (max - min));
+    return ordered.map((c) => {
       const raw = values.get(c.county);
       const v = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
       const customColor = colorOf?.(c.county, v);
       const fillStyle = customColor ?? (v === null ? 'var(--seat-off)' : colorAt(scale, t(v)));
       const label = formatCounty ? formatCounty(c.county, v) : `${c.county}：${format(v)}`;
-      return (
-        <path
-          key={c.county}
-          d={c.path}
-          className="county-shape"
-          aria-current={c.county === selected ? 'true' : undefined}
-          style={{ fill: fillStyle }}
-          tabIndex={inset ? -1 : 0}
-          role="button"
-          aria-label={label}
-          aria-hidden={inset || undefined}
-          onMouseEnter={() => setHover(c.county)}
-          onMouseLeave={() => setHover(null)}
-          onFocus={() => setHover(c.county)}
-          onBlur={() => setHover(null)}
-          onClick={() => onSelect?.(c.county)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              onSelect?.(c.county);
-            }
-          }}
-        >
-          <title>{label}</title>
-        </path>
-      );
+      return { county: c.county, path: c.path, fillStyle, label };
     });
+  }, [ordered, values, scale, min, max, colorOf, formatCounty, format]);
+
+  const focus = hover ?? selected ?? null;
+  // inset：放大圖裡的區塊不進 Tab 順序（主地圖已經有同一個縣市，不要讓鍵盤走兩遍）
+  const shapes = (inset: boolean) =>
+    prepared.map((c) => (
+      <path
+        key={c.county}
+        d={c.path}
+        className="county-shape"
+        aria-current={c.county === selected ? 'true' : undefined}
+        style={{ fill: c.fillStyle }}
+        tabIndex={inset ? -1 : 0}
+        role="button"
+        aria-label={c.label}
+        aria-hidden={inset || undefined}
+        onMouseEnter={() => setHover(c.county)}
+        onMouseLeave={() => setHover(null)}
+        onFocus={() => setHover(c.county)}
+        onBlur={() => setHover(null)}
+        onClick={() => onSelect?.(c.county)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelect?.(c.county);
+          }
+        }}
+      >
+        <title>{c.label}</title>
+      </path>
+    ));
   const overlays = (
     <>
-      {hover && hover !== selected ? <OutlineOverlay items={items} county={hover} className="map-hover" /> : null}
-      {selected ? <OutlineOverlay items={items} county={selected} className="map-selected" /> : null}
+      {hover && hover !== selected ? <OutlineOverlay d={pathByCounty.get(hover)} className="map-hover" /> : null}
+      {selected ? <OutlineOverlay d={pathByCounty.get(selected)} className="map-selected" /> : null}
     </>
   );
   return (
@@ -164,7 +179,7 @@ export function ChoroplethMap({
             </span>
           ))}
         </div>
-      ) : nums.length ? (
+      ) : hasNums ? (
         <div className="stat-legend">
           <span>{format(min)}</span>
           <i style={{ background: gradient(scale) }} aria-hidden="true" />
@@ -175,8 +190,7 @@ export function ChoroplethMap({
   );
 }
 
-function OutlineOverlay({ items, county, className }: { items: { county: string; path: string }[]; county: string; className: string }) {
-  const d = items.find((c) => c.county === county)?.path;
+function OutlineOverlay({ d, className }: { d: string | undefined; className: string }) {
   if (!d) return null;
   return (
     <g className={className} aria-hidden="true" pointerEvents="none">

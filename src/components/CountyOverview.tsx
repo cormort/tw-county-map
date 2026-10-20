@@ -118,7 +118,7 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
     if (!county) return null;
     const scored: {
       metric: OverviewMetric;
-      rank: number;
+      displayRank: number;
       total: number;
       percentile: number;
       isStrength: boolean;
@@ -136,27 +136,44 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
         const v = m.value(county);
         if (v === null) continue;
 
-        // 計算全國排名
+        // 計算全國排名（同時考慮由高到低與由低到高，並正確處理同分並列）
         const allVals = items.map((c) => m.value(c)).filter((x): x is number => x !== null).sort((a, b) => b - a);
-        const rank = allVals.indexOf(v) + 1;
         const total = allVals.length;
         if (total < 5) continue;
+
+        const highRank = allVals.indexOf(v) + 1; // 1 = 數值最高
+        const lowRank = allVals.filter((x) => x < v).length + 1; // 1 = 數值最低（並列最低皆為 1）
 
         const natVal = m.national?.value(items) ?? (allVals.reduce((s, x) => s + x, 0) / allVals.length);
         const diff = v - natVal;
 
-        // 好壞方向：higher_better 前段班（rank 小）是優勢；lower_better 後段班（rank 大、數值小）是優勢
-        const score = pol === 'higher_better' ? (total - rank + 1) / total : rank / total;
-        const isStrength = score >= 0.65;
-        const isWeakness = score <= 0.35;
+        // 好壞方向：
+        // higher_better：highRank 小是優勢（全國第 N 高），lowRank 小是弱項（全國第 N 低）
+        // lower_better：lowRank 小是優勢（全國第 N 低），highRank 小是弱項（全國第 N 高）
+        const bestRank = pol === 'higher_better' ? highRank : lowRank;
+        const worstRank = pol === 'higher_better' ? lowRank : highRank;
+        const threshold = Math.max(1, Math.floor(total * 0.35));
 
-        if (isStrength || isWeakness) {
+        if (bestRank <= threshold) {
+          const score = (total - bestRank + 1) / total;
           scored.push({
             metric: m,
-            rank,
+            displayRank: bestRank,
             total,
             percentile: Math.round(score * 100),
-            isStrength,
+            isStrength: true,
+            polarity: pol,
+            diff,
+            value: v,
+          });
+        } else if (worstRank <= threshold) {
+          const score = (worstRank - 1) / total;
+          scored.push({
+            metric: m,
+            displayRank: worstRank,
+            total,
+            percentile: Math.round(score * 100),
+            isStrength: false,
             polarity: pol,
             diff,
             value: v,
@@ -514,7 +531,7 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
                       <div className="scorecard-item-title">
                         <b>{item.metric.short ?? item.metric.label}</b>
                         <span className="badge badge-good">
-                          全國第 {item.rank} {item.polarity === 'higher_better' ? '高' : '低（負擔輕）'}
+                          全國第 {item.displayRank} {item.polarity === 'higher_better' ? '高' : '低（負擔輕）'}
                         </span>
                       </div>
                       <div className="scorecard-item-meta">
@@ -540,7 +557,7 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
                       <div className="scorecard-item-title">
                         <b>{item.metric.short ?? item.metric.label}</b>
                         <span className="badge badge-bad">
-                          全國第 {item.rank} {item.polarity === 'higher_better' ? '低' : '高（負擔重）'}
+                          全國第 {item.displayRank} {item.polarity === 'higher_better' ? '低' : '高（負擔重）'}
                         </span>
                       </div>
                       <div className="scorecard-item-meta">

@@ -29,7 +29,7 @@ export function connectionHint({ hostname, code }: { hostname: string; code: Con
     return `這個站只在 Tailscale 網路內（${host}）。請確認這台裝置的 Tailscale 已開啟 —— 連上之後會自動重新載入，不必手動重新整理。`;
   }
   if (code === 'timeout') {
-    return '連線逾時：可能是伺服器正在同步（忙碌）或這台裝置的網路太慢。稍後會自動重試，也可以按「重試」。';
+    return '讀取資料逾時：可能是目前網路較慢，可以按「重試」重新載入。';
   }
-  return '連不上 API 伺服器：請確認伺服器還在執行（node server/index.mjs）與這台裝置的網路。恢復後會自動重新載入。';
+  return '無法載入靜態資料檔（public/data/*.json）：請確認裝置網路連線，或執行 npm run snapshot 重新產生快照。';
 }

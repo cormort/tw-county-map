@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buildUrl } from '../api/client';
 import type { CountiesResponse, DemographicsResponse, DemographicTown, PopulationTrendResponse, TownMapResponse } from '../api/types';
 import { useApi } from '../hooks/useApi';
@@ -99,6 +99,11 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
   const [scope, setScope] = useState<'all' | 'county' | 'neighbors'>(county ? 'county' : 'all');
   const [selected, setSelected] = useState<string | undefined>(undefined);
 
+  useEffect(() => {
+    setScope((prev) => (county ? (prev === 'neighbors' && NEIGHBORS[county]?.length ? 'neighbors' : 'county') : 'all'));
+    setSelected(undefined);
+  }, [county]);
+
   // 相鄰縣市：選定縣市＋接壤縣市（看跨縣市的外溢、擴散）；離島沒有鄰縣就只有自己
   const scopeCounties = useMemo(
     () => (scope === 'neighbors' ? [effectiveCounty, ...(NEIGHBORS[effectiveCounty] ?? [])] : [effectiveCounty]),
@@ -125,7 +130,7 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
     valid += b.valid;
     for (const [p, v] of Object.entries(b.votes)) national[p] = (national[p] ?? 0) + v;
   }
-  const parties = sortParties(Object.keys(national).filter((p) => p !== '無黨籍' && national[p] / valid >= 0.03));
+  const parties = sortParties(Object.keys(national).filter((p) => p !== '無黨籍' && valid > 0 && national[p] / valid >= 0.03));
   const party = parties.includes(partyChoice) ? partyChoice : parties[0];
 
   const valueOf = (key: string): number | null => {
@@ -136,12 +141,14 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
       case 'population':
         return d.population;
       case 'density':
-        return d.population / tr.size;
+        return tr.size > 0 ? d.population / tr.size : null;
       case 'change':
-        return ((tr.population[latest] - tr.population['2016']) / tr.population['2016']) * 100;
+        return tr.population['2016'] && tr.population[latest] !== undefined
+          ? ((tr.population[latest] - tr.population['2016']) / tr.population['2016']) * 100
+          : null;
       case 'party': {
         const b = d.elections[election];
-        return b && b.votes[party] !== undefined ? (b.votes[party] / b.valid) * 100 : null;
+        return b && b.valid > 0 && b.votes[party] !== undefined ? (b.votes[party] / b.valid) * 100 : null;
       }
       default:
         return d[metric];
@@ -153,11 +160,11 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
   const format = (v: number | null) => (v === null ? '—' : `${metric === 'change' && v > 0 ? '+' : ''}${v.toLocaleString('zh-TW', { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${meta.unit}`);
 
   const shown = scope === 'all' ? map.data.towns : map.data.towns.filter((t) => scopeCounties.includes(t.county));
-  const items = shown.map((t) => ({ county: t.county + t.town, path: t.path }));
+  const items = shown.map((t) => ({ county: t.county + t.town, town: t.town, path: t.path }));
   const values = new Map(items.map((i) => [i.county, valueOf(i.county)]));
   const ranked = items
-    .map((i) => ({ key: i.county, v: values.get(i.county) ?? null }))
-    .filter((r): r is { key: string; v: number } => r.v !== null)
+    .map((i) => ({ key: i.county, town: i.town, v: values.get(i.county) ?? null }))
+    .filter((r): r is { key: string; town: string; v: number } => r.v !== null)
     .sort((a, b) => b.v - a.v);
   // 縣市界疊在鄉鎮之上（深灰粗線；鄉鎮界是淺灰細線），才分得出哪條是縣市界
   const outlines = counties.items.filter((c) => scope === 'all' || scopeCounties.includes(c.county)).map((c) => c.path);
@@ -246,7 +253,7 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
               <li key={r.key} aria-current={r.key === selected ? 'true' : undefined}>
                 <span className="muted">{i + 1}</span>
                 <button type="button" className="link-button" onClick={() => setSelected(r.key)}>
-                  {scope === 'county' ? r.key.slice(3) : r.key}
+                  {scope === 'county' ? r.town : r.key}
                 </button>
                 <span className="stat-bar-value">{format(r.v)}</span>
               </li>

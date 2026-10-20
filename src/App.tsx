@@ -85,7 +85,7 @@ export function App() {
         </div>
       </header>
       <main className="page">
-        <CountiesPage refreshToken={0} scope={scope} onScopeChange={setScope} onOpenId={() => {}} onNavigate={() => {}} />
+        <CountiesPage refreshToken={0} scope={scope} onScopeChange={setScope} />
       </main>
     </div>
   );
