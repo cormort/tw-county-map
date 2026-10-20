@@ -15,7 +15,7 @@ import { CouncilSeats } from '../components/CouncilSeats';
 import { CustomData } from '../components/CustomData';
 import { CountyOverview } from '../components/CountyOverview';
 import { mergeStats } from '../lib/customData';
-import { noteFor } from '../lib/metricNotes';
+import { COMPARE_NOTES, noteFor } from '../lib/metricNotes';
 import { colorAt, type ScaleName } from '../lib/colorScales';
 import { downloadCsv } from '../lib/csv';
 import { partyStyle } from '../lib/parties';
@@ -366,7 +366,25 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
 
 /* ---------- 數據總覽、排行榜 ---------- */
 
-/** 比例的定義與白話意義（lib/metricNotes.ts）；不是比例的指標沒有說明就不顯示 */
+/** 時間差異：比較指標本身的說明＋差異、變化率怎麼算 */
+function CompareNote({ metricKey }: { metricKey: string }) {
+  const note = noteFor(metricKey);
+  return (
+    <p className="metric-note">
+      {note ? (
+        <>
+          <b>指標</b>　{note.definition}；{note.meaning}
+          <br />
+        </>
+      ) : null}
+      <b>差異</b>　{COMPARE_NOTES.diff.definition}。{COMPARE_NOTES.diff.meaning}
+      <br />
+      <b>變化率</b>　{COMPARE_NOTES.rate.definition}。{COMPARE_NOTES.rate.meaning}
+    </p>
+  );
+}
+
+/** 指標的定義與白話意義（lib/metricNotes.ts）；沒有說明的指標（例如自訂資料）就不顯示 */
 function MetricNote({ metricKey }: { metricKey: string }) {
   const note = noteFor(metricKey);
   if (!note) return null;
@@ -579,7 +597,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
         {tab === 'compare' ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
         <span className="muted">人口資料：{data.population_month}</span>
       </div>
-      <MetricNote metricKey={metric.key} />
+      {tab === 'compare' && pair ? <CompareNote metricKey={pair.newer.key} /> : <MetricNote metricKey={metric.key} />}
       <Overview metric={metric} items={items} />
       </>
       )}

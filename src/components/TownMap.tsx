@@ -5,6 +5,7 @@ import { useApi } from '../hooks/useApi';
 import type { ScaleName } from '../lib/colorScales';
 import { partyStyle, sortParties } from '../lib/parties';
 import { ChoroplethMap } from './ChoroplethMap';
+import { CountyOptions } from './CountyOptions';
 import { ErrorState, LoadingState } from './DataStates';
 
 type ElectionKey = keyof DemographicTown['elections'];
@@ -174,11 +175,7 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
           <label className="stat-control">
             <span>縣市</span>
             <select value={county} onChange={(event) => onSelectCounty(event.target.value)}>
-              {counties.items.map((c) => (
-                <option key={c.county} value={c.county}>
-                  {c.county}
-                </option>
-              ))}
+              <CountyOptions counties={counties.items.map((c) => c.county)} />
             </select>
           </label>
         ) : null}

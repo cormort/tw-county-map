@@ -1,8 +1,9 @@
 import { buildUrl } from '../api/client';
 import type { CountyItem, CountyTrendsResponse, DemographicsResponse, PopulationTrendResponse } from '../api/types';
 import { useApi } from '../hooks/useApi';
-import { noteFor } from '../lib/metricNotes';
+import { COMPARE_NOTES, noteFor } from '../lib/metricNotes';
 import { partyStyle } from '../lib/parties';
+import { CountyOptions } from './CountyOptions';
 
 /** 縣市總覽要用到的指標欄位（CountiesPage 的 Metric 的子集，避免循環 import） */
 export interface OverviewMetric {
@@ -120,15 +121,17 @@ export function CountyOverview({ county, items, metrics, format, refreshToken, o
         <label className="stat-control">
           <span>縣市</span>
           <select value={county.county} onChange={(event) => onSelectCounty(event.target.value)}>
-            {items.map((c) => (
-              <option key={c.county} value={c.county}>
-                {c.county}
-              </option>
-            ))}
+            <CountyOptions counties={items.map((c) => c.county)} />
           </select>
         </label>
-        <span className="muted">排名一律由大到小（「第 1 高」不一定是好事，例如失業率）；▲▼ 是高於或低於比較基準。</span>
       </div>
+      <details className="metric-note overview-howto">
+        <summary>怎麼看這些卡片？</summary>
+        <p><b>全國第幾高</b>　{COMPARE_NOTES.rank.definition}。{COMPARE_NOTES.rank.meaning}</p>
+        <p><b>跟全國比</b>　{COMPARE_NOTES.vsNational.definition}。{COMPARE_NOTES.vsNational.meaning}</p>
+        <p><b>趨勢線</b>　近幾年同一個指標的走勢，滑過可以看每年的數字；只畫形狀，不同卡片之間的高低不能直接比。</p>
+        <p><b>這是什麼？</b>　展開可以看每個指標怎麼算、代表什麼意思。</p>
+      </details>
 
       {GROUPS.map((g) => {
         const list = g.keys.map((k) => byKey.get(k)).filter((m): m is OverviewMetric => !!m);

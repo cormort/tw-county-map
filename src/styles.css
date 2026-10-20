@@ -1244,6 +1244,8 @@ a.stat-tile:hover { border-color: #98a2b3; box-shadow: var(--card-base-hover); t
 /* ---------- 縣市統計地圖 ---------- */
 .metric-note { margin: 0 0 var(--space-3); padding: 10px 14px; border-left: 3px solid var(--accent-line); background: var(--accent-soft); border-radius: 0 var(--radius-md) var(--radius-md) 0; font-size: var(--fs-sm); line-height: 1.7; }
 .overview-note { font-size: var(--fs-sm); }
+.overview-howto summary { cursor: pointer; font-weight: 600; color: var(--accent-ink); }
+.overview-howto p { margin: 6px 0 0; }
 .overview-note summary { cursor: pointer; color: var(--accent-ink); }
 .overview-note p { margin: 4px 0 0; line-height: 1.6; }
 /* 縣市總覽 */
