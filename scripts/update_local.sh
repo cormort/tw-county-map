@@ -57,11 +57,27 @@ notify() {
 }
 trap 'notify "❌ 更新失敗：$BASH_COMMAND（第 $LINENO 行）。紀錄：$LOG"' ERR
 
+# Heartbeat for the GitHub watchdog (LawsGraphify/.github/workflows/watchdog.yml): every run
+# force-pushes a one-commit "heartbeat" branch with its result, so silence
+# (machine off, offline, job not loaded) gets noticed. Never touches main.
+STATUS="fail"
+heartbeat() {
+    local blob tree commit
+    blob=$(printf 'status=%s\ntime=%s\nhost=%s\n' "$STATUS" "$(date '+%F %T %z')" "$(hostname -s)" | git hash-object -w --stdin)
+    tree=$(printf '100644 blob %s\theartbeat.txt\n' "$blob" | git mktree)
+    commit=$(GIT_AUTHOR_NAME=heartbeat GIT_AUTHOR_EMAIL=heartbeat@localhost \
+             GIT_COMMITTER_NAME=heartbeat GIT_COMMITTER_EMAIL=heartbeat@localhost \
+             git commit-tree "$tree" -m "heartbeat: $STATUS")
+    git push -q -f origin "$commit:refs/heads/heartbeat" || echo "heartbeat push failed"
+}
+trap heartbeat EXIT
+
 echo "=== $(date '+%F %T') ==="
 # Never touch work in progress
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "Working tree has uncommitted changes; skipping this run."
     notify "⏭️ 略過：專案有未提交的修改"
+    STATUS="skipped"
     exit 0
 fi
 
@@ -103,6 +119,7 @@ git add public/data
 if git diff --cached --quiet -- public/data ':(exclude)public/data/_snapshot.json'; then
     echo "資料沒有變動。"
     git reset -q && git checkout -q -- public/data  # drop the timestamp-only change
+    STATUS="ok"
     exit 0
 fi
 CHANGED="$(git diff --cached --name-only -- public/data ':(exclude)public/data/_snapshot.json' | sed 's|.*/||; s|\.json$||' | paste -sd '、' -)"
@@ -110,4 +127,5 @@ git diff --cached --stat -- public/data
 git commit -q -m "資料自動更新（Mac mini）$(date +%F)"
 git push -q
 notify "✅ 資料有更新，已推送並部署：$CHANGED"
+STATUS="ok"
 echo "Pushed."
