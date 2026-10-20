@@ -88,21 +88,25 @@ export function countyViewBoxFor(counties: { items: { county: string; path: stri
  * 鄉鎮地圖：368 個鄉鎮市區的面量圖（人口、密度、增減、年齡結構、各黨得票率），可放大到單一縣市，
  * 疊上縣市界；右側為範圍內鄉鎮排行。
  */
-export function TownMap({ refreshToken, counties, county, onSelectCounty }: { refreshToken: number; counties: CountiesResponse; county: string; onSelectCounty: (county: string) => void }) {
+export function TownMap({ refreshToken, counties, county, onSelectCounty }: { refreshToken: number; counties: CountiesResponse; county: string | null; onSelectCounty?: (county: string) => void }) {
   const map = useApi<TownMapResponse>(buildUrl('/town-map'), { refreshToken });
   const demo = useApi<DemographicsResponse>(buildUrl('/demographics'), { refreshToken });
   const trend = useApi<PopulationTrendResponse>(buildUrl('/population-trend'), { refreshToken });
   const [metric, setMetric] = useState<MetricKey>('elderly_ratio');
   const [election, setElection] = useState<ElectionKey>('party_list_2024');
   const [partyChoice, setParty] = useState('民主進步黨');
-  const [scope, setScope] = useState<'all' | 'county' | 'neighbors'>('county');
+  const effectiveCounty = county ?? counties.items[0]?.county ?? '臺北市';
+  const [scope, setScope] = useState<'all' | 'county' | 'neighbors'>(county ? 'county' : 'all');
   const [selected, setSelected] = useState<string | undefined>(undefined);
 
   // 相鄰縣市：選定縣市＋接壤縣市（看跨縣市的外溢、擴散）；離島沒有鄰縣就只有自己
-  const scopeCounties = useMemo(() => (scope === 'neighbors' ? [county, ...(NEIGHBORS[county] ?? [])] : [county]), [scope, county]);
+  const scopeCounties = useMemo(
+    () => (scope === 'neighbors' ? [effectiveCounty, ...(NEIGHBORS[effectiveCounty] ?? [])] : [effectiveCounty]),
+    [scope, effectiveCounty],
+  );
   const countyViewBox = useMemo(
-    () => bbox(counties.items.filter((c) => scopeCounties.includes(c.county)).map((c) => c.path)) ?? countyViewBoxFor(counties, county),
-    [counties, county, scopeCounties],
+    () => bbox(counties.items.filter((c) => scopeCounties.includes(c.county)).map((c) => c.path)) ?? countyViewBoxFor(counties, effectiveCounty),
+    [counties, effectiveCounty, scopeCounties],
   );
 
   const failed = [map, demo, trend].find((r) => r.phase === 'error');
@@ -197,19 +201,19 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
         ) : null}
         <div className="segmented" role="group" aria-label="範圍">
           <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
-            {county}
+            {effectiveCounty}
           </button>
-          <button type="button" aria-pressed={scope === 'neighbors'} onClick={() => setScope('neighbors')} disabled={!NEIGHBORS[county]?.length} title={NEIGHBORS[county]?.length ? `${county}＋${NEIGHBORS[county].join('、')}` : '離島沒有相鄰縣市'}>
+          <button type="button" aria-pressed={scope === 'neighbors'} onClick={() => setScope('neighbors')} disabled={!NEIGHBORS[effectiveCounty]?.length} title={NEIGHBORS[effectiveCounty]?.length ? `${effectiveCounty}＋${NEIGHBORS[effectiveCounty].join('、')}` : '離島沒有相鄰縣市'}>
             相鄰縣市
           </button>
           <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
             全國 368 鄉鎮
           </button>
         </div>
-        {scope !== 'all' ? (
+        {scope !== 'all' && onSelectCounty ? (
           <label className="stat-control">
             <span>縣市</span>
-            <select value={county} onChange={(event) => onSelectCounty(event.target.value)}>
+            <select value={effectiveCounty} onChange={(event) => onSelectCounty(event.target.value)}>
               <CountyOptions counties={counties.items.map((c) => c.county)} />
             </select>
           </label>
@@ -223,14 +227,14 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
             values={values}
             scale={meta.scale}
             diverging={meta.diverging}
-            title={`${scope === 'all' ? '全國' : scope === 'neighbors' ? `${county}與相鄰縣市` : county}各鄉鎮市區・${label}`}
+            title={`${scope === 'all' ? '全國' : scope === 'neighbors' ? `${effectiveCounty}與相鄰縣市` : effectiveCounty}各鄉鎮市區・${label}`}
             format={format}
             selected={selected}
             onSelect={setSelected}
             viewBox={scope === 'all' ? undefined : countyViewBox}
             outlines={outlines}
             level="town"
-            focusOutline={scope === 'neighbors' ? counties.items.find((c) => c.county === county)?.path : undefined}
+            focusOutline={scope === 'neighbors' ? counties.items.find((c) => c.county === effectiveCounty)?.path : undefined}
           />
         </section>
         <section className="panel">

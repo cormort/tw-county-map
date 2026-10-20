@@ -181,7 +181,7 @@ function TrendChart({ points, parties, measure, title }: { points: TrendPoint[];
  * 得票趨勢：總統（2012–2024）、縣市長（2009／10–2022）、不分區政黨票（2012–2024）各黨歷次得票與增減，
  * 標出增減方向改變（轉折）的年份；地圖為所選政黨最近一次的增減率。
  */
-export function VoteTrends({ data, selected, onSelect }: { data: CountiesResponse; selected: string; onSelect: (county: string) => void }) {
+export function VoteTrends({ data, selected, onSelect }: { data: CountiesResponse; selected: string | null; onSelect: (county: string) => void }) {
   const [type, setType] = useState<TrendType>('president');
   const [measure, setMeasure] = useState<Measure>('votes');
   const national = nationalPoints(data, type);
