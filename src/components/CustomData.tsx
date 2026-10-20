@@ -24,7 +24,7 @@ export function CustomData({ counties, loaded, onLoad, onClear }: {
       setMessage({
         ok: true,
         text: [
-          `已從「${name}」加入 ${r.stats.fields.length} 個指標（縣市欄：${r.countyColumn}，對到 ${r.matched} 個縣市），在主題「自訂」裡：${r.stats.fields.map((f) => f.label).join('、')}。`,
+          `已從「${name}」加入 ${r.stats.fields.length} 個指標（縣市欄：${r.countyColumn}，對到 ${r.matched} 個縣市），已切到第一個，下方選單可換：${r.stats.fields.map((f) => f.label).join('、')}。`,
           r.unmatched.length ? `沒算進去的列：${r.unmatched.slice(0, 8).join('、')}${r.unmatched.length > 8 ? '…' : ''}。` : '',
           r.duplicated.length ? `重複的縣市取最後一列：${r.duplicated.join('、')}。` : '',
         ].join(''),
@@ -66,10 +66,10 @@ export function CustomData({ counties, loaded, onLoad, onClear }: {
   };
 
   return (
-    <details className="panel custom-data" onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
-      <summary>
+    <section className="panel custom-data" onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
+      <h2>
         載入自訂資料（JSON／XML／CSV）{loaded ? `・已加入 ${loaded} 個指標` : ''}
-      </summary>
+      </h2>
       <p className="muted">資料需要有一欄是縣市名稱（「臺北市」或「台北」都可以），其他數字欄位會變成指標。資料只留在你的瀏覽器，重新整理就會清掉。</p>
       <form className="custom-data-row" onSubmit={fromUrl}>
         <input type="url" placeholder="輸入 API 網址（JSON／XML／CSV）" value={url} onChange={(event) => setUrl(event.target.value)} aria-label="API 網址" />
@@ -86,6 +86,6 @@ export function CustomData({ counties, loaded, onLoad, onClear }: {
         {loaded ? <button type="button" onClick={() => { onClear(); setMessage(null); }}>清除自訂資料</button> : null}
       </div>
       {message ? <p role="status" className={message.ok ? 'muted' : 'error-text'}>{message.text}</p> : null}
-    </details>
+    </section>
   );
 }

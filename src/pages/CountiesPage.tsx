@@ -181,6 +181,13 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'ranking', label: '排行榜' },
   { key: 'data', label: '原始資料' },
 ];
+/** 主題優先：共同的分頁（地圖、對比、排行、原始資料）＋各主題自己的分頁 */
+const TOPICS = ['人口', '醫療', '房價', '農業', '選舉', '自訂'];
+const TOPIC_TABS: Record<string, Tab[]> = {
+  人口: ['population', 'towns'],
+  選舉: ['trend', 'legislators', 'split', 'demographics', 'compare', 'towns'],
+};
+const tabsFor = (topic: string): Tab[] => ['map', ...(TOPIC_TABS[topic] ?? []), 'dual', 'ranking', 'data'];
 const SCALES: { key: ScaleName; label: string }[] = [
   { key: 'YlOrRd', label: '紅色系' },
   { key: 'Blues', label: '藍色系' },
@@ -269,13 +276,17 @@ function ElectionTable({ title, current, previous, previousLabel }: { title: str
   );
 }
 
-function CountyDetail({ county, data, councilCounties, onOpenId, onNavigate }: { county: CountyItem; data: CountiesResponse; councilCounties: string[]; onOpenId: (id: string) => void; onNavigate: (href: string) => void }) {
+/**
+ * elections＝目前是「選舉」主題：才顯示議員席次、立委與選舉表（首頁預設是人口，不載入選舉的東西）；
+ * 其他主題（醫療、房價…）改列該主題各指標在這個縣市的數值。
+ */
+function CountyDetail({ county, data, councilCounties, elections, topicMetrics, onOpenId, onNavigate }: { county: CountyItem; data: CountiesResponse; councilCounties: string[]; elections: boolean; topicMetrics: Metric[]; onOpenId: (id: string) => void; onNavigate: (href: string) => void }) {
   const e = data.elections;
   return (
     <section className="panel county-detail" aria-label={`${county.county}詳細資料`}>
       <h2>{county.county}</h2>
       {/* 獨立站沒有「議員」那一頁，所以席次直接攤在這裡（只有六都有資料） */}
-      {councilCounties.includes(county.county) ? <CouncilSeats county={county.county} /> : null}
+      {elections && councilCounties.includes(county.county) ? <CouncilSeats county={county.county} /> : null}
       <div className="stat-row">
         <div className="stat-tile">
           <b className="stat-value">{num(county.population)}</b>
@@ -294,6 +305,20 @@ function CountyDetail({ county, data, councilCounties, onOpenId, onNavigate }: {
           <span className="stat-label">人口密度（人／平方公里；面積 {num(county.area_km2, 2)} 平方公里）</span>
         </div>
       </div>
+      {topicMetrics.length ? (
+        <table className="county-table">
+          <tbody>
+            {topicMetrics.map((m) => (
+              <tr key={m.key}>
+                <th scope="row">{m.label}</th>
+                <td className="num">{fmt(m.value(county), m.unit, m.digits)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {elections ? (
+      <>
       <div className="county-legislators">
         <h3>區域立委</h3>
         {county.legislators.length ? (
@@ -322,6 +347,8 @@ function CountyDetail({ county, data, councilCounties, onOpenId, onNavigate }: {
         previous={county.elections.mayor_2018}
         previousLabel={e.mayor_2018.label}
       />
+      </>
+      ) : null}
     </section>
   );
 }
@@ -416,13 +443,14 @@ function Ranking({ metric, items, top, onSelect }: { metric: Metric; items: Coun
 export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPageProps) {
   const res = useApi<CountiesResponse>(buildUrl('/counties'), { refreshToken });
   // 有建置議員頁的縣市（連到議員頁用）
-  const council = useApi<Pick<CouncilResponse, 'counties'>>(buildUrl('/council', { only: 'counties' }), { refreshToken });
   const [metricKey, setMetricKey] = useParam<string>('metric', 'population');
+  // 「自訂」沒載入資料前沒有指標可推算主題，所以另外記在網址上；其他主題由目前的指標推算
+  const [topicParam, setTopicParam] = useParam<string>('topic', '');
   const [metric2Key, setMetric2Key] = useParam<string>('metric2', 'elderly_ratio');
   const [pairKey, setPairKey] = useParam<string>('pair', 'president_2024.民主進步黨.votes');
   const [scale, setScale] = useParam<ScaleName>('scale', 'YlOrRd', SCALES.map((x) => x.key));
   const [top, setTop] = useParam<string>('top', '10', TOP_N);
-  const [tab, setTab] = useParam<Tab>('tab', 'map', TABS.map((x) => x.key));
+  const [tabParam, setTab] = useParam<Tab>('tab', 'map', TABS.map((x) => x.key));
   const [selected, setSelected] = useParam<string>('county', '臺北市');
 
   // 醫療、房價、農地：沒有這個檔就只是少幾個指標，不擋整頁
@@ -431,6 +459,8 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
   const [custom, setCustom] = useState<CountyStatsResponse[]>([]);
   const allStats = useMemo(() => mergeStats([stats.data, ...custom]), [stats.data, custom]);
   const metrics = useMemo(() => (res.data ? buildMetrics(res.data, allStats) : []), [res.data, allStats]);
+  const isElection = metrics.find((m) => m.key === metricKey)?.category === '選舉';
+  const council = useApi<Pick<CouncilResponse, 'counties'>>(isElection ? buildUrl('/council', { only: 'counties' }) : null, { refreshToken });
   const pairs = useMemo(() => (res.data ? buildPairs(metrics, res.data) : []), [metrics, res.data]);
 
   if (res.phase === 'error') return <ErrorState title="無法取得縣市資料（/api/v1/counties）" error={res.error} onRetry={res.reload} />;
@@ -444,6 +474,16 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
   const data = res.data;
   const items = data.items;
   const metric = metrics.find((m) => m.key === metricKey) ?? metrics[0];
+  const topic = topicParam === '自訂' ? '自訂' : metric.category;
+  const topicMetrics = metrics.filter((m) => m.category === topic);
+  const tabs = TABS.filter((t) => tabsFor(topic).includes(t.key));
+  // 換主題後原本的分頁可能不在這個主題裡（例如醫療沒有「得票趨勢」）：落回互動地圖
+  const tab = tabs.some((t) => t.key === tabParam) ? tabParam : 'map';
+  const chooseTopic = (c: string) => {
+    setTopicParam(c === '自訂' ? '自訂' : '');
+    const first = metrics.find((m) => m.category === c);
+    if (first) setMetricKey(first.key);
+  };
   const metric2 = metrics.find((m) => m.key === metric2Key) ?? metrics[1];
   const pair = pairs.find((p) => p.key === pairKey) ?? pairs[0];
   // 查不到就明講，不要靜默換成第一個縣市（原住民／不分區的 region 不是縣市名，會走到這裡）
@@ -479,30 +519,33 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
         }),
       ]),
     ]);
-  const tableMetrics = metrics.slice(0, 6).includes(metric) ? metrics.slice(0, 6) : [...metrics.slice(0, 6), metric];
+  // 原始資料：列目前主題的指標（選舉有三十幾個，只列前 6 個＋目前選的）
+  const tableMetrics = topicMetrics.length <= 10 ? topicMetrics : [...new Set([...topicMetrics.slice(0, 6), metric])];
 
   return (
     <>
       <h1 className="sr-only">縣市統計地圖</h1>
 
-      <CustomData
-        counties={items.map((c) => c.county)}
-        loaded={custom.reduce((n, s) => n + s.fields.length, 0)}
-        onLoad={(s) => setCustom((list) => [...list, s])}
-        onClear={() => setCustom([])}
-      />
+      <nav className="topic-nav" aria-label="主題">
+        {TOPICS.filter((c) => c === '自訂' || metrics.some((m) => m.category === c)).map((c) => (
+          <button key={c} type="button" aria-pressed={topic === c} onClick={() => chooseTopic(c)}>
+            {c}
+          </button>
+        ))}
+      </nav>
+
+      {topic === '自訂' ? (
+        <CustomData
+          counties={items.map((c) => c.county)}
+          loaded={custom.reduce((n, s) => n + s.fields.length, 0)}
+          onLoad={(s) => { setCustom((list) => [...list, s]); setMetricKey(s.fields[0].key); }}
+          onClear={() => { setCustom([]); setMetricKey('population'); }}
+        />
+      ) : null}
+      {topic === '自訂' && !topicMetrics.length ? null : (
+      <>
       <div className="stat-controls">
-        <div className="stat-control">
-          <span id="metric-category">主題</span>
-          <div className="segmented stat-categories" role="group" aria-labelledby="metric-category">
-            {[...new Set(metrics.map((m) => m.category))].map((c) => (
-              <button key={c} type="button" aria-pressed={metric.category === c} onClick={() => setMetricKey(metrics.find((m) => m.category === c)!.key)}>
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
-        <MetricSelect label="主要分析指標" options={metrics.filter((m) => m.category === metric.category)} value={metric.key} onChange={setMetricKey} />
+        <MetricSelect label="分析指標" options={topicMetrics} value={metric.key} onChange={setMetricKey} />
         {/* 分頁專用的選單也放在這一列，不要散在分頁按鈕下面 */}
         {tab === 'dual' ? <MetricSelect label="第二個分析指標" options={metrics} value={metric2.key} onChange={setMetric2Key} /> : null}
         {tab === 'compare' ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
@@ -511,7 +554,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
       <Overview metric={metric} items={items} />
 
       <div className="segmented stat-tabs" role="group" aria-label="分析方式">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.key} type="button" aria-pressed={tab === t.key} onClick={() => setTab(t.key)}>
             {t.label}
           </button>
@@ -530,7 +573,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
             </div>
             <ChoroplethMap items={items} values={mapValues(metric)} scale={scale} format={formatOf(metric)} title={`${metric.label} - 地理分布圖`} selected={current.county} onSelect={setSelected} />
           </section>
-          <CountyDetail county={current} data={data} councilCounties={council.data?.counties ?? []} onOpenId={onOpenId} onNavigate={onNavigate} />
+          <CountyDetail county={current} data={data} councilCounties={council.data?.counties ?? []} elections={metric.category === '選舉'} topicMetrics={metric.category === '人口' || metric.category === '選舉' ? [] : metrics.filter((m) => m.category === metric.category)} onOpenId={onOpenId} onNavigate={onNavigate} />
         </div>
       ) : null}
 
@@ -672,6 +715,8 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
           </div>
         </section>
       ) : null}
+      </>
+      )}
 
       <p className="muted">
         資料來源：
