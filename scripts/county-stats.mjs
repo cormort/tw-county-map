@@ -13,6 +13,7 @@
  * - 移民署外籍與大陸港澳配偶人數（內政部統計查詢網），取最新月份
  * - 衛福部長照 ABC 據點；主計總處所得、失業率；國發會歲入歲出決算；國庫署公共債務；台電縣市別用電
  * - 商發署公司、商業登記；產發署登記工廠名錄；勞保局投保人數；戶政司原住民人口；教育部各級學校名錄
+ * - 國民年金被保險人數（國民年金監理會 PDF）；健保署設籍人口參加健保人數
  * 另寫出 public/data/county-trends.json：所得、失業率、債務、用電量、出生數、老年人口比率的歷年值（縣市總覽的趨勢線）
  */
 import { execFileSync, spawn } from 'node:child_process';
@@ -78,7 +79,7 @@ function table(title) {
   for (const line of text.slice(start)) {
     const m = line.match(/^\s*((?:\S\s*){2}[縣市])\s+[A-Za-z][A-Za-z ]*?\s{2,}(.*)$/);
     if (!m) continue;
-    const county = m[1].replace(/\s/g, '');
+    const county = m[1].replace(/\s/g, '').normalize('NFKC');
     if (!COUNTIES.includes(county) || rows[county]) continue;
     rows[county] = m[2].trim().split(/\s+/).map((t) => (t === '-' ? 0 : Number(t.replace(/,/g, ''))));
     if (Object.keys(rows).length === COUNTIES.length) return rows;
@@ -573,6 +574,47 @@ fields.push(
   { key: 'labor_insured_per1000', label: '每千人勞保投保人數', unit: '人／千人', digits: 1, ...laborMeta, national: perMille(sumAll((c) => labor[c]), allTotal) },
 );
 for (const c of COUNTIES) { items[c].labor_insured = labor[c]; items[c].labor_insured_per1000 = perMille(labor[c], total(c)); }
+
+// 國民年金被保險人數（勞保局，國民年金監理會每月 PDF「按身分別及地區分」，地區依戶籍）
+const npList = await (await fetch('https://dep.mohw.gov.tw/NPSC/lp-5387-118-1-20.html')).text();
+const npLink = npList.match(/(dl-\d+-[0-9a-f-]+\.html)" title="(\d+)年(\d+)月-pdf/);
+if (!npLink) throw new Error('國民年金監理會的列表頁格式變了，找不到最新月份的 PDF');
+const npPdf = await download(`https://dep.mohw.gov.tw/NPSC/${npLink[1]}`, 'national-pension.pdf');
+const npRows = {};
+for (const line of execFileSync('pdftotext', ['-layout', npPdf, '-']).toString().split('\n')) {
+  const m = line.match(/^\s*((?:\S\s*){2}[縣市])\s+([\d,]+)/);
+  // PDF 文字裡有 CJK 相容字（「北」是 U+F963、「蘭」是 U+F91F…），看起來一樣但比對不上，先 NFKC 正規化
+  const c = m?.[1].replace(/\s/g, '').normalize('NFKC');
+  if (c && items[c] && !(c in npRows)) npRows[c] = Number(m[2].replace(/,/g, ''));
+}
+if (Object.keys(npRows).length !== COUNTIES.length) throw new Error(`國民年金 PDF 只讀到 ${Object.keys(npRows).length} 個縣市`);
+const npMeta = { category: '經濟', period: `${Number(npLink[2]) + 1911}-${npLink[3].padStart(2, '0')}`, source: '勞動部勞工保險局（國民年金監理會「國民年金被保險人數－按身分別及地區分」）', url: 'https://dep.mohw.gov.tw/NPSC/lp-5387-118-1-20.html' };
+const age25to64 = (c) => ageSum(c, 25, 64);
+fields.push(
+  { key: 'national_pension', label: '國民年金被保險人數', unit: '人', ...npMeta },
+  { key: 'national_pension_ratio', label: '國保被保險人占 25–64 歲人口比率', unit: '%', ...npMeta, national: share(sumAll((c) => npRows[c]), sumAll(age25to64)) },
+);
+for (const c of COUNTIES) { items[c].national_pension = npRows[c]; items[c].national_pension_ratio = share(npRows[c], age25to64(c)); }
+
+// 全民健保：全國設籍人口參加健保人數（健保署，每年；縣市×鄉鎮×性別×年齡），參加率的分母用同月戶籍人口
+const nhiRes = await latestResource(37276, (d) => d.resourceFormat === 'CSV');
+const nhiLines = (await (await fetch(nhiRes.resourceDownloadUrl)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean);
+const nhi = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
+let nhiYm = '';
+for (const l of nhiLines.slice(1)) {
+  const r = l.split(',');
+  const c = normCounty(r[1] ?? '');
+  if (c in nhi) { nhi[c] += Number(r[6]) || 0; nhiYm = r[0]; }
+}
+const nhiPopYm = `${Number(nhiYm.slice(0, 3)) + 1911}/${nhiYm.slice(3)}`;
+const nhiPop = await villageCsv('population', nhiPopYm);
+if (!nhiPop) throw new Error(`缺 ${nhiPopYm} 的村里人口資料（健保參加率的分母）`);
+const nhiMeta = { category: '醫療', period: nhiPopYm.replace('/', '-'), source: '衛福部中央健康保險署全國設籍人口參加健保人數', url: 'https://data.gov.tw/dataset/37276' };
+fields.push(
+  { key: 'nhi_insured', label: '設籍人口參加健保人數', unit: '人', ...nhiMeta },
+  { key: 'nhi_coverage', label: '健保參加率（參加健保人數 ÷ 同月戶籍人口）', unit: '%', ...nhiMeta, national: share(sumAll((c) => nhi[c]), sumAll((c) => nhiPop[c]['人口數'])) },
+);
+for (const c of COUNTIES) { items[c].nhi_insured = nhi[c]; items[c].nhi_coverage = share(nhi[c], nhiPop[c]['人口數']); }
 
 // 原住民人口（戶政司現住原住民人口按性別、年齡；村里×性別×身分×年齡約 470 萬列，用串流加總）
 const indRes = await latestResource(77129, (d) => /^\d{5}/.test(d.resourceDescription) && d.resourceFormat === 'ZIP');

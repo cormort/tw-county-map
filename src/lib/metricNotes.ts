@@ -90,6 +90,11 @@ export const METRIC_NOTES: Record<string, { definition: string; meaning: string 
   elec_residential_per_capita: { definition: '近 12 個月住宅用電量 ÷ 人口', meaning: '平均每人在家裡用多少電；跟氣候（冷氣）、家戶人數、生活型態有關。' },
   elec_industry_share: { definition: '工業用電 ÷ 總用電量 × 100', meaning: '用電有幾成是工廠用的，看這個縣市的產業結構偏不偏工業。' },
   elec_growth: { definition: '（近 12 個月總用電 － 前 12 個月總用電）÷ 前 12 個月總用電 × 100', meaning: '用電量一年來成長還是衰退；常跟產業擴張或景氣有關。' },
+  // 社會保險
+  national_pension: { definition: '國民年金當月納保人數（依被保險人戶籍所在縣市）', meaning: '投保國民年金的人數；國保是給 25–64 歲、沒有參加勞保、公保、軍保、農保的人。' },
+  national_pension_ratio: { definition: '國民年金被保險人數 ÷ 25–64 歲人口 × 100', meaning: '工作年齡人口中，沒有其他職業社會保險（多半是自營、家管、待業或打零工）的比例；越高，代表沒有受僱、沒有雇主分擔保費的人越多。' },
+  nhi_insured: { definition: '設籍在這個縣市、有參加全民健保的人數（年底）', meaning: '戶籍人口裡有健保的人數。' },
+  nhi_coverage: { definition: '設籍人口參加健保人數 ÷ 同月戶籍人口 × 100', meaning: '設籍的人有幾 % 有健保；沒到 100% 的部分多半是長期出國、停保或失聯人口，數字越低代表戶籍人口跟實際在台人口差越多。' },
   // 財政
   own_revenue_ratio: { definition: '（歲入 － 中央補助及協助收入）÷ 歲入 × 100', meaning: '縣市自己收來的錢（稅、規費等）占總收入多少；越高越不依賴中央補助。' },
   expenditure_per_capita: { definition: '歲出決算 ÷ 人口', meaning: '平均花在每位居民身上的預算；地廣人稀或離島通常偏高。' },
