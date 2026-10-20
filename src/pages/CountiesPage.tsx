@@ -60,6 +60,8 @@ interface Metric {
    * 22 個縣市密度的和沒有意義，全國要一起算（總人口 ÷ 總面積）。
    */
   national?: { value: (items: CountyItem[]) => number | null; label: string };
+  /** 選舉第一名政黨版圖填色用 */
+  partyOf?: (c: CountyItem) => string | null;
 }
 
 const ELECTIONS: CountyElectionKey[] = ['president_2024', 'president_2020', 'mayor_2022', 'mayor_2018'];
@@ -181,6 +183,21 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
     const label = data.elections[election].label;
     const category = '選舉';
     const of = (c: CountyItem) => c.elections[election];
+
+    // 各縣市第一名勝選政黨版圖
+    metrics.push({
+      key: `${election}.winner`,
+      label: `${label}・第一名勝選政黨版圖`,
+      unit: '%',
+      category,
+      subcategory: label,
+      kind: 'rate',
+      election,
+      field: 'winner',
+      value: (c) => of(c).candidates[0]?.pct ?? null,
+      partyOf: (c) => of(c).candidates[0]?.party ?? null,
+    });
+
     for (const party of PARTIES) {
       if (!data.items.some((c) => partyVotes(of(c), party))) continue;
       const short = partyStyle(party).short;
@@ -355,8 +372,45 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
         <h2>{county.county}</h2>
         <button type="button" onClick={onShowTowns}>看鄉鎮市區地圖</button>
       </div>
-      {/* 獨立站沒有「議員」那一頁，所以席次直接攤在這裡（只有六都有資料） */}
-      {elections && councilCounties.includes(county.county) ? <CouncilSeats county={county.county} /> : null}
+
+      {elections ? (
+        <>
+          {/* 首長視角第一優先：縣市長大選得票與勝負 */}
+          <ElectionTable
+            title={`${e.mayor_2022.label}（${county.county === '嘉義市' ? '2022-12-18 延期選舉' : e.mayor_2022.date}）`}
+            current={county.elections.mayor_2022}
+            previous={county.elections.mayor_2018}
+            previousLabel={e.mayor_2018.label}
+          />
+          {/* 總統大選在地版圖 */}
+          <ElectionTable
+            title={`${e.president_2024.label}（${e.president_2024.date}）`}
+            current={county.elections.president_2024}
+            previous={county.elections.president_2020}
+            previousLabel={e.president_2020.label}
+          />
+          {/* 六都議會席次 */}
+          {councilCounties.includes(county.county) ? <CouncilSeats county={county.county} /> : null}
+          {/* 區域立委民意代表 */}
+          <div className="county-legislators">
+            <h3>區域立委</h3>
+            {county.legislators.length ? (
+              county.legislators.map((l) => (
+                <span key={l.id} className="county-legislator">
+                  <button type="button" className="name-button" onClick={() => onOpenId(l.id)}>
+                    {l.name}
+                  </button>
+                  <PartyTag party={l.party} />
+                  <small className="muted">{l.area_name}</small>
+                </span>
+              ))
+            ) : (
+              <span className="muted">尚無資料</span>
+            )}
+          </div>
+        </>
+      ) : null}
+
       <div className="stat-row">
         <div className="stat-tile">
           <b className="stat-value">{num(county.population)}</b>
@@ -375,7 +429,8 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
           <span className="stat-label"><Tip text={noteText('density')}>人口密度</Tip>（人／平方公里；面積 {num(county.area_km2, 2)} 平方公里）</span>
         </div>
       </div>
-      {topicMetrics.length ? (
+
+      {!elections && topicMetrics.length ? (
         <table className="county-table">
           <tbody>
             {topicMetrics.map((m) => (
@@ -386,38 +441,6 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
             ))}
           </tbody>
         </table>
-      ) : null}
-      {elections ? (
-      <>
-      <div className="county-legislators">
-        <h3>區域立委</h3>
-        {county.legislators.length ? (
-          county.legislators.map((l) => (
-            <span key={l.id} className="county-legislator">
-              <button type="button" className="name-button" onClick={() => onOpenId(l.id)}>
-                {l.name}
-              </button>
-              <PartyTag party={l.party} />
-              <small className="muted">{l.area_name}</small>
-            </span>
-          ))
-        ) : (
-          <span className="muted">尚無資料</span>
-        )}
-      </div>
-      <ElectionTable
-        title={`${e.president_2024.label}（${e.president_2024.date}）`}
-        current={county.elections.president_2024}
-        previous={county.elections.president_2020}
-        previousLabel={e.president_2020.label}
-      />
-      <ElectionTable
-        title={`${e.mayor_2022.label}（${county.county === '嘉義市' ? '2022-12-18 延期選舉' : e.mayor_2022.date}）`}
-        current={county.elections.mayor_2022}
-        previous={county.elections.mayor_2018}
-        previousLabel={e.mayor_2018.label}
-      />
-      </>
       ) : null}
     </section>
   );
@@ -570,10 +593,15 @@ function ElectionMetricControls({
   } else if (parts[1] === 'turnout') {
     activeTarget = 'turnout';
     activeMeasure = 'pct';
+  } else if (parts[1] === 'winner') {
+    activeTarget = 'winner';
+    activeMeasure = 'pct';
   }
 
   const setParams = (nextElection: CountyElectionKey, nextTarget: string, nextMeasure: 'pct' | 'votes') => {
-    if (nextTarget === 'turnout') {
+    if (nextTarget === 'winner') {
+      onChange(`${nextElection}.winner`);
+    } else if (nextTarget === 'turnout') {
       onChange(`${nextElection}.turnout`);
     } else if (nextTarget === 'margin') {
       onChange(nextMeasure === 'votes' ? `${nextElection}.margin` : `${nextElection}.margin_pct`);
@@ -604,6 +632,9 @@ function ElectionMetricControls({
           value={activeTarget}
           onChange={(e) => setParams(activeElection, e.target.value, activeMeasure)}
         >
+          <optgroup label="政治版圖">
+            <option value="winner">第一名勝選政黨版圖</option>
+          </optgroup>
           <optgroup label="主要政黨">
             {PARTIES.map((p) => (
               <option key={p} value={p}>
@@ -618,7 +649,7 @@ function ElectionMetricControls({
         </select>
       </label>
 
-      {activeTarget !== 'turnout' ? (
+      {activeTarget !== 'turnout' && activeTarget !== 'winner' ? (
         <label className="stat-control">
           <span>數據形式</span>
           <select
@@ -887,14 +918,52 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
       {tab === 'map' ? (
         <div className="county-layout">
           <section className="panel county-map-panel">
-            <div className="segmented stat-scales" role="group" aria-label="地圖配色">
-              {SCALES.map((s) => (
-                <button key={s.key} type="button" aria-pressed={scale === s.key} onClick={() => setScale(s.key)}>
-                  {s.label}
-                </button>
-              ))}
-            </div>
-            <ChoroplethMap items={items} values={mapValues(metric)} scale={scale} format={formatOf(metric)} title={`${metric.label} - 地理分布圖`} selected={focus ?? undefined} onSelect={setSelected} />
+            {!metric.partyOf ? (
+              <div className="segmented stat-scales" role="group" aria-label="地圖配色">
+                {SCALES.map((s) => (
+                  <button key={s.key} type="button" aria-pressed={scale === s.key} onClick={() => setScale(s.key)}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <ChoroplethMap
+              items={items}
+              values={mapValues(metric)}
+              scale={scale}
+              format={formatOf(metric)}
+              title={`${metric.label} - 地理分布圖`}
+              selected={focus ?? undefined}
+              onSelect={setSelected}
+              colorOf={
+                metric.partyOf
+                  ? (county) => {
+                      const c = items.find((x) => x.county === county);
+                      const p = c && metric.partyOf ? metric.partyOf(c) : null;
+                      return p ? partyStyle(p).color : null;
+                    }
+                  : undefined
+              }
+              legendItems={
+                metric.partyOf
+                  ? [
+                      { label: '民進黨', color: partyStyle('民主進步黨').color },
+                      { label: '國民黨', color: partyStyle('中國國民黨').color },
+                      { label: '民眾黨', color: partyStyle('台灣民眾黨').color },
+                      { label: '無黨籍', color: partyStyle('無黨籍').color },
+                    ]
+                  : undefined
+              }
+              formatCounty={
+                metric.partyOf
+                  ? (county) => {
+                      const c = items.find((x) => x.county === county);
+                      const cand = c && metric.election ? c.elections[metric.election].candidates[0] : null;
+                      return cand ? `${county}：${cand.party}（${cand.name} ${cand.pct.toFixed(2)}%）` : `${county}：無資料`;
+                    }
+                  : undefined
+              }
+            />
           </section>
           {current ? (
           <CountyDetail county={current} data={data} councilCounties={council.data?.counties ?? []} elections={metric.category === '選舉'}
