@@ -19,7 +19,7 @@ export function App() {
       <header className="app-header">
         <h1 className="app-title">台灣縣市地圖</h1>
         <p className="muted">
-          22 個縣市的人口、醫療、房價、農業與選舉統計。
+          22 個縣市的人口、醫療、房價、經濟、財政、農業與選舉統計。
           {snapshotAt ? ` 資料快照：${snapshotAt}` : ''}
         </p>
       </header>

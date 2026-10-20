@@ -955,6 +955,12 @@ export interface CountyStatsResponse {
   items: Record<string, Record<string, number | null>>;
 }
 
+/** /county-trends：縣市總覽的趨勢線（scripts/county-stats.mjs 一起產生） */
+export interface CountyTrendsResponse {
+  meta: { generated_at: string };
+  series: Record<string, { label: string; unit: string; points: { period: string; values: Record<string, number | null> }[] }>;
+}
+
 /* ---------- /council ---------- */
 
 export type CouncilKind = 'area' | 'plain' | 'mountain';

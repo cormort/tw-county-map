@@ -11,14 +11,19 @@
  * - 農業部「農耕土地面積」開放資料（data.gov.tw/dataset/94988），取最新年度
  * - 戶政司村里單一年齡人口、出生死亡（kiang/data.moi.gov.tw 轉存），取最新月份與近 12 個月
  * - 移民署外籍與大陸港澳配偶人數（內政部統計查詢網），取最新月份
+ * - 衛福部長照 ABC 據點；主計總處所得、失業率；國發會歲入歲出決算；國庫署公共債務
+ * 另寫出 public/data/county-trends.json：所得、失業率、債務、出生數、老年人口比率的歷年值（縣市總覽的趨勢線）
  */
 import { execFileSync } from 'node:child_process';
+import { get as httpsGet } from 'node:https';
+import { rootCertificates } from 'node:tls';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'data', 'county-stats.json');
+const TRENDS_OUT = join(dirname(OUT), 'county-trends.json');
 const MOHW_PDF = 'https://www.mohw.gov.tw/dl-97890-29ae7106-ef97-442e-b3ff-9a8eb164f7a6.html';
 const MOHW_YEAR = '113 年底';
 const SEASONS = ['114S4', '115S1', '115S2', '115S3'];
@@ -99,6 +104,7 @@ for (const [key, label, unit, value] of medical.filter(([k]) => k !== 'hospitals
 
 const PING = 3.305785; // 1 坪 = 3.305785 m²
 const prices = Object.fromEntries(COUNTIES.map((c) => [c, []]));
+const totals = Object.fromEntries(COUNTIES.map((c) => [c, []])); // 住宅成交總價（元），算房價所得比
 const deals = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
 for (const season of SEASONS) {
   const zip = await download(`https://plvr.land.moi.gov.tw/DownloadSeason?season=${season}&type=zip&fileName=lvr_landcsv.zip`, `${season}.zip`);
@@ -119,6 +125,7 @@ for (const season of SEASONS) {
       // 房價只看住宅、排除親友或特殊關係等異常交易
       if (r[col['主要用途']] !== '住家用' || !(unitPrice > 0) || /親友|特殊|員工|瑕疵|急買急賣|毛胚/.test(r[col['備註']])) continue;
       prices[county].push((unitPrice * PING) / 10000);
+      totals[county].push(Number(r[col['總價元']]));
     }
   }
 }
@@ -167,7 +174,12 @@ async function villageCsv(kind, ym) {
   const res = await fetch(`${KIANG}/${kind}/${ym}/data.csv`);
   if (!res.ok) return null;
   const [header, ...rows] = (await res.text()).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
-  const cols = header.split(',');
+  // 2024 年中以前的檔案是英文欄名（birth_total、people_age_000_m…），統一成中文
+  const cols = header.split(',').map((h) => {
+    const age = h.match(/^people_age_(\d{3}|100up)_([mf])$/);
+    if (age) return `${age[1] === '100up' ? '100歲以上' : `${Number(age[1])}歲`}-${age[2] === 'm' ? '男' : '女'}`;
+    return { birth_total: '出生數', death_total: '死亡數', people_total: '人口數', people_total_m: '人口數-男', people_total_f: '人口數-女' }[h] ?? h;
+  });
   const sums = Object.fromEntries(COUNTIES.map((c) => [c, {}]));
   for (const row of rows) {
     const r = row.split(','); // ponytail: 這兩份 CSV 沒有引號欄位
@@ -282,6 +294,172 @@ fields.push(
     national: perMille(COUNTIES.reduce((s, c) => s + items[c].new_residents, 0), allTotal) },
 );
 for (const c of COUNTIES) items[c].new_residents_per1000 = perMille(items[c].new_residents, total(c));
+
+/* ---------- 人口動態：一年前同月人口 → 人口增減、淨遷入（社會增加）、高齡化速度 ---------- */
+
+const [py, pm] = popYm.split('/').map(Number);
+const lastYearYm = `${py - 1}/${String(pm).padStart(2, '0')}`;
+const agesLastYear = await villageCsv('population', lastYearYm);
+if (!agesLastYear) throw new Error(`缺 ${lastYearYm} 的村里人口資料`);
+const elderlyOf = (src, c) => { let n = 0; for (let a = 65; a <= 99; a++) n += (src[c][`${a}歲-男`] ?? 0) + (src[c][`${a}歲-女`] ?? 0); return n + (src[c]['100歲以上-男'] ?? 0) + (src[c]['100歲以上-女'] ?? 0); };
+const working = (c) => ageSum(c, 15, 64);
+const dyn = { category: '人口', period: `${lastYearYm.replace('/', '-')}→${popPeriod}`, source: '內政部戶政司村里單一年齡人口、出生死亡', url: 'https://github.com/kiang/data.moi.gov.tw' };
+const sumAll = (f) => COUNTIES.reduce((s, c) => s + f(c), 0);
+const growth = (c) => total(c) - agesLastYear[c]['人口數'];
+// 社會增加＝總增加－自然增加（出生－死亡）；戶政司的遷入遷出表只有 xls/ods，這裡用恆等式推回淨遷入
+const netMigration = (c) => growth(c) - (vital[c].births - vital[c].deaths);
+const lastTotal = (c) => agesLastYear[c]['人口數'];
+fields.push(
+  { key: 'pop_growth', label: '一年人口增減', unit: '人', ...dyn },
+  { key: 'pop_growth_rate', label: '一年人口增減率', unit: '%', ...dyn, national: share(sumAll(growth), sumAll(lastTotal)) },
+  { key: 'net_migration', label: '淨遷入（社會增加＝總增加－自然增加）', unit: '人', ...dyn },
+  { key: 'net_migration_rate', label: '淨遷入率', unit: '‰', digits: 2, ...dyn, national: perMille(sumAll(netMigration), sumAll(lastTotal)) },
+  { key: 'aging_speed', label: '高齡化速度（65 歲以上比率一年增加）', unit: '百分點', ...dyn,
+    national: round(share(sumAll((c) => elderlyOf(ages, c)), allTotal) - share(sumAll((c) => elderlyOf(agesLastYear, c)), sumAll(lastTotal)), 2) },
+  { key: 'old_dependency', label: '扶老比（65 歲以上 ÷ 15–64 歲）', unit: '%', ...census, national: share(sumAll((c) => elderlyOf(ages, c)), sumAll(working)) },
+  { key: 'young_dependency', label: '扶幼比（0–14 歲 ÷ 15–64 歲）', unit: '%', ...census, national: share(sumAll((c) => ageSum(c, 0, 14)), sumAll(working)) },
+  { key: 'primary_outlook', label: '6 年後國小學齡人口增減（以現在 0–5 歲推估）', unit: '%', ...census,
+    national: share(sumAll((c) => ageSum(c, 0, 5)) - sumAll((c) => ageSum(c, 6, 11)), sumAll((c) => ageSum(c, 6, 11))) },
+);
+for (const c of COUNTIES) {
+  items[c].pop_growth = growth(c);
+  items[c].pop_growth_rate = share(growth(c), lastTotal(c));
+  items[c].net_migration = netMigration(c);
+  items[c].net_migration_rate = perMille(netMigration(c), lastTotal(c));
+  items[c].aging_speed = round(share(elderlyOf(ages, c), total(c)) - share(elderlyOf(agesLastYear, c), lastTotal(c)), 2);
+  items[c].old_dependency = share(elderlyOf(ages, c), working(c));
+  items[c].young_dependency = share(ageSum(c, 0, 14), working(c));
+  // ponytail: 不扣死亡與遷徙，只是「現在 0–5 歲 vs 現在 6–11 歲」的粗估
+  items[c].primary_outlook = share(ageSum(c, 0, 5) - ageSum(c, 6, 11), ageSum(c, 6, 11));
+}
+
+/* ---------- 長照（衛福部長照 ABC 據點，每日更新） ---------- */
+
+const ltcCsv = await (await fetch('https://ltcpap.mohw.gov.tw/publish/abc.csv')).text();
+const ltc = Object.fromEntries(COUNTIES.map((c) => [c, new Set()]));
+for (const line of ltcCsv.split(/\r?\n/).slice(1)) {
+  // "機構名稱","機構代碼","機構種類","縣市代碼",…,"O_ABC"：同一機構每個特約服務各一列，用機構代碼去重。
+  // ponytail: 不分 A/B/C —— 臺北市在這份檔案裡一個 C 據點都沒有，C 據點顯然沒完整登錄在這裡
+  const m = line.match(/^"[^"]*","([^"]*)","[^"]*","(\d+)",/);
+  const county = m && MOA[m[2]];
+  if (!county) continue;
+  ltc[county].add(m[1]);
+}
+const ltcMeta = { category: '醫療', period: new Date().toISOString().slice(0, 10), source: '衛福部長照 ABC 據點', url: 'https://data.gov.tw/dataset/88270' };
+const elderlyAll = sumAll((c) => elderlyOf(ages, c));
+fields.push(
+  { key: 'ltc_points', label: '長照 ABC 據點數', unit: '處', ...ltcMeta },
+  { key: 'ltc_per1000_elderly', label: '每千名 65 歲以上長者的長照據點', unit: '處／千人', digits: 1, ...ltcMeta,
+    national: perMille(sumAll((c) => ltc[c].size), elderlyAll) },
+);
+for (const c of COUNTIES) {
+  items[c].ltc_points = ltc[c].size;
+  items[c].ltc_per1000_elderly = perMille(ltc[c].size, elderlyOf(ages, c));
+}
+
+/* ---------- 所得、失業率（主計總處）；ws.dgbas.gov.tw 的憑證鏈缺中繼憑證，自己補上 ---------- */
+
+const twcaDer = Buffer.from(await (await fetch('http://sslserver.twca.com.tw/cacert/Cyber_SSL_2023.crt')).arrayBuffer());
+const twcaPem = `-----BEGIN CERTIFICATE-----\n${twcaDer.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`;
+const fetchDgbas = (url) => new Promise((resolve, reject) => {
+  httpsGet(url, { ca: [...rootCertificates, twcaPem] }, (res) => {
+    if (res.statusCode !== 200) return reject(new Error(`${url} → HTTP ${res.statusCode}`));
+    const chunks = [];
+    res.on('data', (d) => chunks.push(d)).on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+  }).on('error', reject);
+});
+const trends = {}; // key → { label, unit, points: [{ period, values: { 縣市: 值 } }] }
+
+// 平均每戶可支配所得（年，1998 起；金門、連江不在家庭收支調查範圍）
+const incomeRows = (await fetchDgbas('https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/232214/006-%E5%B9%B3%E5%9D%87%E6%AF%8F%E6%88%B6%E5%8F%AF%E6%94%AF%E9%85%8D%E6%89%80%E5%BE%97%E6%8C%89%E5%8D%80%E5%9F%9F%E5%88%A5%E5%88%86.csv'))
+  .replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(',').map((x) => x.replace(/"/g, '')));
+const incomeHeader = incomeRows[0].map((h) => h.replace(/-元$/, ''));
+const incomeByYear = incomeRows.slice(1).map((r) => ({ period: r[0], values: Object.fromEntries(incomeHeader.slice(1).map((h, i) => [h, Number(r[i + 1])]).filter(([h]) => items[h])) }));
+const incomeLatest = incomeByYear.at(-1);
+const nationalIncome = Number(incomeRows.at(-1)[1]);
+trends.income = { label: '平均每戶可支配所得', unit: '元', points: incomeByYear.slice(-10) };
+const dgbasIncome = { category: '經濟', period: `${incomeLatest.period} 年`, source: '主計總處家庭收支調查', url: 'https://data.gov.tw/dataset/9415' };
+fields.push({ key: 'income', label: '平均每戶可支配所得', unit: '元', ...dgbasIncome, national: nationalIncome });
+for (const c of COUNTIES) items[c].income = incomeLatest.values[c] ?? null;
+
+// 房價所得比：住宅成交總價中位數 ÷ 平均每戶可支配所得（官方用中位數所得，這裡只有平均數，數字會偏低一些）
+fields.push({ key: 'price_to_income', label: '房價所得比（成交總價中位數 ÷ 平均每戶可支配所得）', unit: '倍', digits: 1, category: '房價', period: `${lvr.period}；所得 ${incomeLatest.period} 年`, source: '內政部實價登錄＋主計總處家庭收支調查', url: 'https://plvr.land.moi.gov.tw/DownloadOpenData',
+  national: round(median(Object.values(totals).flat()) / nationalIncome) });
+for (const c of COUNTIES) {
+  const m = median(totals[c]);
+  items[c].price_to_income = m !== null && items[c].income ? round(m / items[c].income) : null;
+}
+
+// 失業率（年；只取已過完的完整年度，表裡也有半年列）
+const unempXml = await fetchDgbas('https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230038/mp0101a10.xml');
+const unempByYear = [...unempXml.matchAll(/<縣市別失業率>([\s\S]*?)<\/縣市別失業率>/g)].map(([, body]) => ({
+  period: body.match(/<年月別_Year_and_month>([^<]*)</)[1],
+  values: Object.fromEntries([...body.matchAll(/<([^_<>]+)_[^>]*_百分比>([^<]*)</g)].filter(([, n]) => items[n]).map(([, n, v]) => [n, Number(v)])),
+  national: Number(body.match(/<臺灣地區_Taiwan_Area_百分比>([^<]*)</)?.[1]),
+})).filter((r) => /^\d{4}$/.test(r.period) && Number(r.period) < now.getUTCFullYear());
+const unempLatest = unempByYear.at(-1);
+trends.unemployment = { label: '失業率', unit: '%', points: unempByYear.slice(-10).map(({ period, values }) => ({ period, values })) };
+fields.push({ key: 'unemployment', label: '失業率', unit: '%', category: '經濟', period: `${unempLatest.period} 年`, source: '主計總處人力資源調查', url: 'https://data.gov.tw/dataset/6640', national: unempLatest.national });
+for (const c of COUNTIES) items[c].unemployment = unempLatest.values[c] ?? null;
+
+/* ---------- 財政：歲入、歲出決算（國發會彙編）、公共債務（國庫署） ---------- */
+
+const ndcCsv = async (url) => {
+  const [header, ...rows] = (await (await fetch(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
+  return rows.map((r) => Object.fromEntries(header.map((h, i) => [h, r[i]])));
+};
+const rev = await ndcCsv('https://ws.ndc.gov.tw/Download.ashx?u=LzAwMS9hZG1pbmlzdHJhdG9yLzEwL3JlbGZpbGUvNTc4MS82Mzk2LzYxMTFhZDNmLTZkMmUtNGUxMC05OGRlLTQzNGE0YzgxM2U4My5jc3Y%3d&n=OC0xIOatsuWFpS5jc3Y%3d&icon=.csv');
+const exp = await ndcCsv('https://ws.ndc.gov.tw/Download.ashx?u=LzAwMS9hZG1pbmlzdHJhdG9yLzEwL3JlbGZpbGUvNTc4MS82Mzk2L2UxZTliZGQ2LTQyNWYtNGYwYS1iN2E3LTY3OGNhYWE0MzRlYy5jc3Y%3d&n=OC0yIOatsuWHui5jc3Y%3d&icon=.csv');
+const fiscalYear = rev[0]['年'];
+const revOf = (c) => rev.find((r) => r['地區'] === c);
+const expOf = (c) => exp.find((r) => r['地區'] === c);
+// 自有財源＝歲入－補助及協助收入（單位百萬元）。以歲出當分母時臺北市會超過 100%（2024 歲入 2,228 億、歲出 1,587 億），
+// 跟官方「自有財源比率」對不起來，所以用定義明確的「占歲入比率」
+const ownRevenue = (c) => Number(revOf(c)['合計實數']) - Number(revOf(c)['補助及協助收入實數']);
+const fiscal = { category: '財政', period: `${fiscalYear} 年度決算`, source: '國發會都市及區域發展統計彙編（各縣市歲入、歲出決算）', url: 'https://data.gov.tw/dataset/6518' };
+fields.push(
+  { key: 'own_revenue_ratio', label: '自有財源占歲入比率', unit: '%', ...fiscal, national: share(sumAll(ownRevenue), sumAll((c) => Number(revOf(c)['合計實數']))) },
+  { key: 'expenditure_per_capita', label: '每人歲出', unit: '元', ...fiscal, national: Math.round((sumAll((c) => Number(expOf(c)['合計實數'])) * 1e6) / allTotal) },
+);
+for (const c of COUNTIES) {
+  if (!revOf(c) || !expOf(c)) continue;
+  items[c].own_revenue_ratio = share(ownRevenue(c), Number(revOf(c)['合計實數']));
+  items[c].expenditure_per_capita = Math.round((Number(expOf(c)['合計實數']) * 1e6) / total(c));
+}
+// 公共債務（1 年以上＋未滿 1 年，百萬元）；比率欄直轄市與縣市分母不同（GDP vs 歲出），只取金額換算每人負債
+const debtRows = (await (await fetch('https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv')).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
+const debtYears = [...new Set(debtRows.slice(1).map((r) => r[0]))].sort();
+const debtOf = (year, c) => { const r = debtRows.find((x) => x[0] === year && x[1] === c); return r ? Number(r[6]) : null; };
+const debtYear = debtYears.at(-1);
+fields.push(
+  { key: 'debt', label: '公共債務餘額', unit: '百萬元', category: '財政', period: `${Number(debtYear) + 1911} 年度`, source: '財政部國庫署歷年各級政府債務概況', url: 'https://data.gov.tw/dataset/25301' },
+  { key: 'debt_per_capita', label: '每人負債', unit: '元', category: '財政', period: `${Number(debtYear) + 1911} 年度`, source: '財政部國庫署歷年各級政府債務概況', url: 'https://data.gov.tw/dataset/25301',
+    national: Math.round((sumAll((c) => debtOf(debtYear, c) ?? 0) * 1e6) / allTotal) },
+);
+for (const c of COUNTIES) {
+  items[c].debt = debtOf(debtYear, c);
+  items[c].debt_per_capita = items[c].debt === null ? null : Math.round((items[c].debt * 1e6) / total(c));
+}
+trends.debt = { label: '公共債務餘額', unit: '百萬元', points: debtYears.slice(-10).map((y) => ({ period: String(Number(y) + 1911), values: Object.fromEntries(COUNTIES.map((c) => [c, debtOf(y, c)])) })) };
+
+/* ---------- 歷年趨勢：出生數、65 歲以上比率（近 5 個完整年度，戶政司村里資料加總） ---------- */
+
+const trendYears = Array.from({ length: 5 }, (_, i) => now.getUTCFullYear() - 5 + i);
+trends.births = { label: '出生數', unit: '人', points: [] };
+trends.elderly_ratio = { label: '老年人口比率', unit: '%', points: [] };
+for (const y of trendYears) {
+  const births = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
+  for (let m = 1; m <= 12; m++) {
+    const b = await villageCsv('bdmd', `${y}/${String(m).padStart(2, '0')}`);
+    if (!b) throw new Error(`缺 ${y}/${m} 的出生死亡資料`);
+    for (const c of COUNTIES) births[c] += b[c]['出生數'];
+  }
+  trends.births.points.push({ period: String(y), values: births });
+  const dec = await villageCsv('population', `${y}/12`);
+  if (!dec) throw new Error(`缺 ${y}/12 的村里人口資料`);
+  trends.elderly_ratio.points.push({ period: String(y), values: Object.fromEntries(COUNTIES.map((c) => [c, share(elderlyOf(dec, c), dec[c]['人口數'])])) });
+}
+await writeFile(TRENDS_OUT, JSON.stringify({ meta: { generated_at: new Date().toISOString() }, series: trends }));
 
 await writeFile(OUT, JSON.stringify({ meta: { generated_at: new Date().toISOString() }, fields, items }));
 console.log(`寫出 ${OUT}：${fields.length} 個指標`);

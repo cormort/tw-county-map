@@ -13,6 +13,7 @@ import { TownMap } from '../components/TownMap';
 import { VoteTrends } from '../components/VoteTrends';
 import { CouncilSeats } from '../components/CouncilSeats';
 import { CustomData } from '../components/CustomData';
+import { CountyOverview } from '../components/CountyOverview';
 import { mergeStats } from '../lib/customData';
 import { colorAt, type ScaleName } from '../lib/colorScales';
 import { downloadCsv } from '../lib/csv';
@@ -32,6 +33,9 @@ type Unit = '人' | '戶' | '%' | '票' | '百分點' | '平方公里' | '人／
 interface Metric {
   key: string;
   label: string;
+  /** 縣市總覽卡片用：不含資料時點的短名稱與時點 */
+  short?: string;
+  period?: string;
   /** 頁首的類別按鈕（人口、選舉、醫療…）；選單只列目前類別的指標 */
   category: string;
   unit: Unit;
@@ -107,6 +111,8 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
     metrics.push({
       key: f.key,
       label: `${f.label}（${f.period}）`,
+      short: f.label,
+      period: f.period,
       category: f.key.startsWith('custom.') ? '自訂' : f.category ?? '其他',
       unit: f.unit,
       digits: f.digits,
@@ -167,9 +173,10 @@ function buildPairs(metrics: Metric[], data: CountiesResponse): ComparePair[] {
 
 /* ---------- 網址狀態 ---------- */
 
-type Tab = 'map' | 'towns' | 'trend' | 'legislators' | 'split' | 'demographics' | 'population' | 'dual' | 'compare' | 'ranking' | 'data';
+type Tab = 'map' | 'overview' | 'towns' | 'trend' | 'legislators' | 'split' | 'demographics' | 'population' | 'dual' | 'compare' | 'ranking' | 'data';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'map', label: '互動地圖' },
+  { key: 'overview', label: '縣市總覽' },
   { key: 'towns', label: '鄉鎮地圖' },
   { key: 'trend', label: '得票趨勢' },
   { key: 'legislators', label: '立委得票' },
@@ -182,12 +189,12 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'data', label: '原始資料' },
 ];
 /** 主題優先：共同的分頁（地圖、對比、排行、原始資料）＋各主題自己的分頁 */
-const TOPICS = ['人口', '醫療', '房價', '農業', '選舉', '自訂'];
+const TOPICS = ['人口', '醫療', '房價', '經濟', '財政', '農業', '選舉', '自訂'];
 const TOPIC_TABS: Record<string, Tab[]> = {
   人口: ['population', 'towns'],
   選舉: ['trend', 'legislators', 'split', 'demographics', 'compare', 'towns'],
 };
-const tabsFor = (topic: string): Tab[] => ['map', ...(TOPIC_TABS[topic] ?? []), 'dual', 'ranking', 'data'];
+const tabsFor = (topic: string): Tab[] => ['map', 'overview', ...(TOPIC_TABS[topic] ?? []), 'dual', 'ranking', 'data'];
 const SCALES: { key: ScaleName; label: string }[] = [
   { key: 'YlOrRd', label: '紅色系' },
   { key: 'Blues', label: '藍色系' },
@@ -542,11 +549,14 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
         <CustomData
           counties={items.map((c) => c.county)}
           loaded={custom.reduce((n, s) => n + s.fields.length, 0)}
-          onLoad={(s) => { setCustom((list) => [...list, s]); setMetricKey(s.fields[0].key); }}
+          onLoad={(s) => { setCustom((list) => [...list.filter((x) => x.fields[0]?.source !== s.fields[0].source), s]); setMetricKey(s.fields[0].key); }} // 同一個檔名再載一次＝取代
           onClear={() => { setCustom([]); setMetricKey('population'); }}
         />
       ) : null}
       {topic === '自訂' && !topicMetrics.length ? null : (
+      <>
+      {/* 縣市總覽自己有縣市選單、看的是挑過的跨主題指標：上面的指標選單與全國方塊不需要 */}
+      {tab === 'overview' ? null : (
       <>
       <div className="stat-controls">
         <MetricSelect label="分析指標" options={topicMetrics} value={metric.key} onChange={setMetricKey} />
@@ -556,6 +566,8 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
         <span className="muted">人口資料：{data.population_month}</span>
       </div>
       <Overview metric={metric} items={items} />
+      </>
+      )}
 
       <div className="segmented stat-tabs" role="group" aria-label="分析方式">
         {tabs.map((t) => (
@@ -588,6 +600,17 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
             }}
             onOpenId={onOpenId} onNavigate={onNavigate} />
         </div>
+      ) : null}
+
+      {tab === 'overview' ? (
+        <CountyOverview
+          county={current}
+          items={items}
+          metrics={metrics}
+          format={(m, v) => fmt(v, m.unit as Unit, (m as Metric).digits)}
+          refreshToken={refreshToken}
+          onSelectCounty={setSelected}
+        />
       ) : null}
 
       {tab === 'trend' ? <VoteTrends data={data} selected={current.county} onSelect={setSelected} /> : null}
