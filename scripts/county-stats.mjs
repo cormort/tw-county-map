@@ -71,7 +71,7 @@ function table(title) {
 const inst = table('表20醫療院所家數');
 const beds = table('表24醫療院所病床數');
 const staff = table('表28醫療院所執業醫事人員數'); // [年底人口, 醫事人員合計, 西醫師, 中醫師, 牙醫師, …]
-const mohw = { period: MOHW_YEAR, source: '衛福部醫事機構服務量統計年報', url: MOHW_PDF };
+const mohw = { category: '醫療', period: MOHW_YEAR, source: '衛福部醫事機構服務量統計年報', url: MOHW_PDF };
 const medical = [
   ['institutions', '醫療院所數', '家', (c) => inst[c][0]],
   ['hospitals', '醫院數', '家', (c) => inst[c][1]],
@@ -124,7 +124,7 @@ const median = (xs) => {
   const s = [...xs].sort((a, b) => a - b);
   return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null;
 };
-const lvr = { period: `近四季申報：${SEASONS.map((x) => `${x.slice(0, 3)} 年 Q${x.at(-1)}`).filter((_, i, a) => !i || i === a.length - 1).join('–')}`, source: '內政部實價登錄', url: 'https://plvr.land.moi.gov.tw/DownloadOpenData' };
+const lvr = { category: '房價', period: `近四季申報：${SEASONS.map((x) => `${x.slice(0, 3)} 年 Q${x.at(-1)}`).filter((_, i, a) => !i || i === a.length - 1).join('–')}`, source: '內政部實價登錄', url: 'https://plvr.land.moi.gov.tw/DownloadOpenData' };
 fields.push(
   { key: 'house_price', label: '住宅成交單價中位數', unit: '萬元／坪', digits: 1, ...lvr, national: round(median(Object.values(prices).flat())) },
   { key: 'house_deals', label: '房屋買賣件數', unit: '件', ...lvr },
@@ -143,7 +143,7 @@ const farm = await (await fetch(FARM)).json();
 const year = Math.max(...farm.map((r) => Number(r.year)));
 // cultivated_area 其實是「耕地佔土地面積 %」，公頃數要把五類加總（台中 112 年 ≈ 47,520 公頃，與市府年報相符）
 const PARTS = ['rice', 'short_norice', 'short_leisure', 'long_farm', 'long_leisure'];
-const moa = { period: `${year} 年`, source: '農業部農耕土地面積', url: 'https://data.gov.tw/dataset/94988' };
+const moa = { category: '農業', period: `${year} 年`, source: '農業部農耕土地面積', url: 'https://data.gov.tw/dataset/94988' };
 fields.push(
   { key: 'farmland', label: '耕地面積', unit: '公頃', ...moa },
   { key: 'farmland_ratio', label: '耕地佔土地面積比率', unit: '%', ...moa },

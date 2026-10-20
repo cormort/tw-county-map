@@ -24,7 +24,7 @@ export function CustomData({ counties, loaded, onLoad, onClear }: {
       setMessage({
         ok: true,
         text: [
-          `已從「${name}」加入 ${r.stats.fields.length} 個指標（縣市欄：${r.countyColumn}，對到 ${r.matched} 個縣市），在「主要分析指標」選單裡標著「自訂」：${r.stats.fields.map((f) => f.label).join('、')}。`,
+          `已從「${name}」加入 ${r.stats.fields.length} 個指標（縣市欄：${r.countyColumn}，對到 ${r.matched} 個縣市），在主題「自訂」裡：${r.stats.fields.map((f) => f.label).join('、')}。`,
           r.unmatched.length ? `沒算進去的列：${r.unmatched.slice(0, 8).join('、')}${r.unmatched.length > 8 ? '…' : ''}。` : '',
           r.duplicated.length ? `重複的縣市取最後一列：${r.duplicated.join('、')}。` : '',
         ].join(''),

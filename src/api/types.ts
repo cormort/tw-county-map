@@ -942,6 +942,8 @@ export interface CountyStatField {
   period: string;
   source: string;
   url: string;
+  /** 頁首類別按鈕：醫療、房價、農業… */
+  category?: string;
   digits?: number;
   /** 比率、中位數這類不能相加的指標：全國值由腳本直接算好 */
   national?: number;

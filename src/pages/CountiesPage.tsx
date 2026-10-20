@@ -32,6 +32,8 @@ type Unit = '人' | '戶' | '%' | '票' | '百分點' | '平方公里' | '人／
 interface Metric {
   key: string;
   label: string;
+  /** 頁首的類別按鈕（人口、選舉、醫療…）；選單只列目前類別的指標 */
+  category: string;
   unit: Unit;
   /** 非比率的小數位數（面積 2 位、密度 1 位）；比率固定 2 位 */
   digits?: number;
@@ -78,16 +80,17 @@ function partyVotes(e: CountyElection, party: string): { votes: number; pct: num
 /** 由資料列出所有可分析的數值指標（相當於 tw_statistic_map 的「數值欄位」）；匯出給 render smoke 驗指標清單 */
 export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse): Metric[] {
   const metrics: Metric[] = [
-    { key: 'population', label: '人口數', unit: '人', value: (c) => c.population },
-    { key: 'households', label: '戶數', unit: '戶', value: (c) => c.households },
-    { key: 'voting_age', label: '選舉年齡人口（20 歲以上）', unit: '人', value: (c) => c.voting_age },
-    { key: 'voting_age_ratio', label: '選舉年齡人口比率', unit: '%', value: (c) => ratio(c.voting_age, c.population) },
-    { key: 'elderly', label: '老年人口（65 歲以上）', unit: '人', value: (c) => c.elderly },
-    { key: 'elderly_ratio', label: '老年人口比率', unit: '%', value: (c) => ratio(c.elderly, c.population) },
-    { key: 'area_km2', label: '面積', unit: '平方公里', digits: 2, value: (c) => c.area_km2 },
+    { key: 'population', category: '人口', label: '人口數', unit: '人', value: (c) => c.population },
+    { key: 'households', category: '人口', label: '戶數', unit: '戶', value: (c) => c.households },
+    { key: 'voting_age', category: '人口', label: '選舉年齡人口（20 歲以上）', unit: '人', value: (c) => c.voting_age },
+    { key: 'voting_age_ratio', category: '人口', label: '選舉年齡人口比率', unit: '%', value: (c) => ratio(c.voting_age, c.population) },
+    { key: 'elderly', category: '人口', label: '老年人口（65 歲以上）', unit: '人', value: (c) => c.elderly },
+    { key: 'elderly_ratio', category: '人口', label: '老年人口比率', unit: '%', value: (c) => ratio(c.elderly, c.population) },
+    { key: 'area_km2', category: '人口', label: '面積', unit: '平方公里', digits: 2, value: (c) => c.area_km2 },
     {
       key: 'density',
       label: '人口密度',
+      category: '人口',
       unit: '人／平方公里',
       value: (c) => perArea(c.population, c.area_km2),
       // 22 個縣市密度相加沒有意義：全國那一格改成「總人口 ÷ 總面積」
@@ -104,6 +107,7 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
     metrics.push({
       key: f.key,
       label: `${f.label}（${f.period}）`,
+      category: f.key.startsWith('custom.') ? '自訂' : f.category ?? '其他',
       unit: f.unit,
       digits: f.digits,
       value: (c) => stats?.items[c.county]?.[f.key] ?? null,
@@ -112,24 +116,27 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
   }
   for (const election of ELECTIONS) {
     const label = data.elections[election].label;
+    const category = '選舉';
     const of = (c: CountyItem) => c.elections[election];
     for (const party of PARTIES) {
       if (!data.items.some((c) => partyVotes(of(c), party))) continue;
       const short = partyStyle(party).short;
       metrics.push(
-        { key: `${election}.${party}.votes`, label: `${label}・${short}得票數`, unit: '票', election, field: `${party}.votes`, value: (c) => partyVotes(of(c), party)?.votes ?? null },
-        { key: `${election}.${party}.pct`, label: `${label}・${short}得票率`, unit: '%', election, field: `${party}.pct`, value: (c) => partyVotes(of(c), party)?.pct ?? null },
+        { key: `${election}.${party}.votes`, label: `${label}・${short}得票數`, unit: '票', category, election, field: `${party}.votes`, value: (c) => partyVotes(of(c), party)?.votes ?? null },
+        { key: `${election}.${party}.pct`, label: `${label}・${short}得票率`, unit: '%', category, election, field: `${party}.pct`, value: (c) => partyVotes(of(c), party)?.pct ?? null },
       );
     }
     metrics.push(
-      { key: `${election}.margin`, label: `${label}・第一名領先票數`, unit: '票', election, field: 'margin', value: (c) => of(c).margin },
-      { key: `${election}.margin_pct`, label: `${label}・第一名領先幅度`, unit: '百分點', election, field: 'margin_pct', value: (c) => of(c).margin_pct },
+      { key: `${election}.margin`, label: `${label}・第一名領先票數`, unit: '票', category, election, field: 'margin', value: (c) => of(c).margin },
+      { key: `${election}.margin_pct`, label: `${label}・第一名領先幅度`, unit: '百分點', category, election, field: 'margin_pct', value: (c) => of(c).margin_pct },
     );
     if (data.items.every((c) => of(c).turnout !== null)) {
-      metrics.push({ key: `${election}.turnout`, label: `${label}・投票率`, unit: '%', election, field: 'turnout', value: (c) => of(c).turnout });
+      metrics.push({ key: `${election}.turnout`, label: `${label}・投票率`, unit: '%', category, election, field: 'turnout', value: (c) => of(c).turnout });
     }
   }
-  return metrics;
+  // 統計檔的類別排在選舉前面、自訂排最後
+  const order = (m: Metric) => (m.category === '人口' ? 0 : m.category === '選舉' ? 2 : m.category === '自訂' ? 3 : 1);
+  return metrics.sort((a, b) => order(a) - order(b));
 }
 
 interface ComparePair {
@@ -321,16 +328,25 @@ function CountyDetail({ county, data, councilCounties, onOpenId, onNavigate }: {
 
 /* ---------- 數據總覽、排行榜 ---------- */
 
-function MetricSelect({ label, options, value, onChange }: { label: string; options: { key: string; label: string }[]; value: string; onChange: (key: string) => void }) {
+function MetricSelect({ label, options, value, onChange }: { label: string; options: { key: string; label: string; category?: string }[]; value: string; onChange: (key: string) => void }) {
+  const option = (m: { key: string; label: string }) => (
+    <option key={m.key} value={m.key}>
+      {m.label}
+    </option>
+  );
+  // 跨好幾個主題的清單（第二個分析指標）用 optgroup 分組，不然一長串找不到
+  const groups = [...new Set(options.map((m) => m.category ?? ''))];
   return (
     <label className="stat-control">
       <span>{label}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)}>
-        {options.map((m) => (
-          <option key={m.key} value={m.key}>
-            {m.label}
-          </option>
-        ))}
+        {groups.length > 1
+          ? groups.map((g) => (
+              <optgroup key={g} label={g}>
+                {options.filter((m) => (m.category ?? '') === g).map(option)}
+              </optgroup>
+            ))
+          : options.map(option)}
       </select>
     </label>
   );
@@ -476,7 +492,17 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
         onClear={() => setCustom([])}
       />
       <div className="stat-controls">
-        <MetricSelect label="主要分析指標" options={metrics} value={metric.key} onChange={setMetricKey} />
+        <div className="stat-control">
+          <span id="metric-category">主題</span>
+          <div className="segmented stat-categories" role="group" aria-labelledby="metric-category">
+            {[...new Set(metrics.map((m) => m.category))].map((c) => (
+              <button key={c} type="button" aria-pressed={metric.category === c} onClick={() => setMetricKey(metrics.find((m) => m.category === c)!.key)}>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+        <MetricSelect label="主要分析指標" options={metrics.filter((m) => m.category === metric.category)} value={metric.key} onChange={setMetricKey} />
         {/* 分頁專用的選單也放在這一列，不要散在分頁按鈕下面 */}
         {tab === 'dual' ? <MetricSelect label="第二個分析指標" options={metrics} value={metric2.key} onChange={setMetric2Key} /> : null}
         {tab === 'compare' ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
