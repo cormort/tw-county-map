@@ -27,6 +27,7 @@ export function CustomData({ counties, loaded, onLoad, onClear }: {
           `已從「${name}」加入 ${r.stats.fields.length} 個指標（縣市欄：${r.countyColumn}，對到 ${r.matched} 個縣市），已切到第一個，下方選單可換：${r.stats.fields.map((f) => f.label).join('、')}。`,
           r.unmatched.length ? `沒算進去的列：${r.unmatched.slice(0, 8).join('、')}${r.unmatched.length > 8 ? '…' : ''}。` : '',
           r.duplicated.length ? `重複的縣市取最後一列：${r.duplicated.join('、')}。` : '',
+          r.skipped.length ? `數字不到八成、沒當成指標的欄：${r.skipped.join('、')}。` : '',
         ].join(''),
       });
     } catch (error) {

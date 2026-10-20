@@ -41,7 +41,7 @@ function PersonalVsParty({ items, year, onOpenId }: { items: LegislatorVotesResp
   return (
     <section className="panel">
       <div className="sectionhead">
-        <h2>個人票對照政黨票</h2>
+        <h2>個人票對照同黨得票</h2>
         <div className="segmented" role="group" aria-label="對照基準">
           {(Object.keys(BASIS) as Basis[]).map((b) => (
             <button key={b} type="button" aria-pressed={basis === b} onClick={() => setBasis(b)}>
@@ -52,7 +52,7 @@ function PersonalVsParty({ items, year, onOpenId }: { items: LegislatorVotesResp
       </div>
       <p className="muted">
         {year} 年區域立委得票率，減去同選區{BASIS[basis]}的得票率；正值代表個人比黨強。此範圍平均 {pt(avg)} 個百分點，可當比較基準
-        （政黨票分散給許多小黨，區域候選人通常高於政黨票）。
+        {basis === 'party_list' ? '（政黨票分散給許多小黨，區域候選人通常高於政黨票）' : ''}。
         {basis === 'president' ? '2024 總統為三強競爭（民眾黨約 26%），沒有民眾黨對手的選區差距會偏大，建議以政黨票為主。' : '政黨票不受候選人人數影響，較適合跨選區比較。'}
       </p>
       <ol className="pvp-list">

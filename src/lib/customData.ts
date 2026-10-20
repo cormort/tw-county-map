@@ -85,6 +85,8 @@ export interface CustomResult {
   /** 縣市欄裡對不上的值（例如「總計」、「新竹」），讓使用者知道哪些列沒算進去 */
   unmatched: string[];
   duplicated: string[];
+  /** 數字不到八成、沒當成指標的欄（讓使用者知道為什麼少了） */
+  skipped: string[];
 }
 
 export function toCountyStats(rows: Row[], counties: string[], name: string): CustomResult {
@@ -106,11 +108,12 @@ export function toCountyStats(rows: Row[], counties: string[], name: string): Cu
     kept.push({ ...r, [countyColumn]: county });
   }
   const fields: CountyStatsResponse['fields'] = [];
+  const skipped: string[] = [];
   for (const col of columns) {
     if (col === countyColumn) continue;
     const values = kept.map((r) => toNumber(r[col])).filter((v) => v !== null);
     // 八成以上是數字才當指標（年度、代碼這種欄位也會進來，使用者不選就好）
-    if (!values.length || values.filter(Number.isFinite).length < values.length * 0.8) continue;
+    if (!values.length || values.filter(Number.isFinite).length < values.length * 0.8) { skipped.push(col); continue; }
     const key = `custom.${name}.${col}`;
     fields.push({ key, label: col, unit: '', period: `自訂：${name}`, source: name, url: '', digits: values.some((v) => !Number.isInteger(v)) ? 2 : 0 });
     for (const r of kept) {
@@ -119,7 +122,7 @@ export function toCountyStats(rows: Row[], counties: string[], name: string): Cu
     }
   }
   if (!fields.length) throw new Error('除了縣市欄以外，找不到數值欄位');
-  return { stats: { meta: { generated_at: new Date().toISOString() }, fields, items }, countyColumn, matched: Object.keys(items).length, unmatched: [...unmatched], duplicated: [...duplicated] };
+  return { stats: { meta: { generated_at: new Date().toISOString() }, fields, items }, countyColumn, matched: Object.keys(items).length, unmatched: [...unmatched], duplicated: [...duplicated], skipped };
 }
 
 /** 合併多份統計（county-stats.json ＋ 使用者載入的） */

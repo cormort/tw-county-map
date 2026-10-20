@@ -207,12 +207,17 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
           </>
         ) : null}
         <div className="segmented" role="group" aria-label="範圍">
-          <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
-            {effectiveCounty}
-          </button>
-          <button type="button" aria-pressed={scope === 'neighbors'} onClick={() => setScope('neighbors')} disabled={!NEIGHBORS[effectiveCounty]?.length} title={NEIGHBORS[effectiveCounty]?.length ? `${effectiveCounty}＋${NEIGHBORS[effectiveCounty].join('、')}` : '離島沒有相鄰縣市'}>
-            相鄰縣市
-          </button>
+          {/* 全國視角沒選縣市：只留「全國」，不要冒出 counties.items[0]（基隆市） */}
+          {county ? (
+            <>
+              <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
+                {effectiveCounty}
+              </button>
+              <button type="button" aria-pressed={scope === 'neighbors'} onClick={() => setScope('neighbors')} disabled={!NEIGHBORS[effectiveCounty]?.length} title={NEIGHBORS[effectiveCounty]?.length ? `${effectiveCounty}＋${NEIGHBORS[effectiveCounty].join('、')}` : '離島沒有相鄰縣市'}>
+                相鄰縣市
+              </button>
+            </>
+          ) : null}
           <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
             全國 368 鄉鎮
           </button>

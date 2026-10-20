@@ -403,7 +403,7 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
                 <span className="macro-sub muted">就業市場活絡度</span>
               </div>
               <div className="national-macro-card">
-                <span className="macro-label">地方自籌財源比率</span>
+                <span className="macro-label">自有財源占歲入比率</span>
                 <b className="macro-val">{(() => {
                   const m = byKey.get('own_revenue_ratio');
                   const v = m ? nationalOf(m).v : null;
@@ -431,7 +431,7 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
                       <th className="num">平均所得</th>
                       <th className="num">高齡比率</th>
                       <th className="num">每萬人病床</th>
-                      <th className="num">自籌財源率</th>
+                      <th className="num">自有財源占歲入</th>
                     </tr>
                   </thead>
                   <tbody>

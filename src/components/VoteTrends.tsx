@@ -274,9 +274,12 @@ export function VoteTrends({ data, selected, onSelect }: { data: CountiesRespons
         </section>
         <section className="panel">
           <div className="segmented" role="group" aria-label="範圍">
-            <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
-              {county.county}
-            </button>
+            {/* 全國視角沒選縣市：不要冒出 data.items[0]（基隆市）當按鈕 */}
+            {selected ? (
+              <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
+                {county.county}
+              </button>
+            ) : null}
             <button type="button" aria-pressed={scope === 'national'} onClick={() => setScope('national')}>
               全國
             </button>

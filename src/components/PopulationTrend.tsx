@@ -121,7 +121,8 @@ export function PopulationTrend({ refreshToken, counties, selected, onSelect }: 
   };
   const natA = value(national(fi));
   const natB = value(national(li));
-  const current = data.counties.find((c) => c.county === selected) ?? data.counties[0];
+  // 全國視角：current 為 null，只畫全國線、不列鄉鎮表
+  const current = data.counties.find((c) => c.county === selected) ?? null;
   const nationalMonthly = data.months.map((_, i) => (data.counties.some((c) => c.monthly[i] === null) ? null : data.counties.reduce((s, c) => s + c.monthly[i]!, 0)));
   const fmtVal = (v: number) => (m.ratio ? `${v.toFixed(2)}%` : num(Math.round(v)));
   const fmtChange = (r: number) => (m.ratio ? `${signed(r, 2)} 個百分點` : `${signed(r, 1)}%`);
@@ -130,7 +131,7 @@ export function PopulationTrend({ refreshToken, counties, selected, onSelect }: 
   const towns = data.towns
     .filter((t) => t.population[from] && t.population[latest] && t.size > 0)
     .map((t) => ({ ...t, rate: ((t.population[latest] - t.population[from]) / t.population[from]) * 100, density: t.population[latest] / t.size }));
-  const scoped = towns.filter((t) => t.county === current.county).sort((a, b) => b.rate - a.rate);
+  const scoped = current ? towns.filter((t) => t.county === current.county).sort((a, b) => b.rate - a.rate) : [];
   const nationalTop = [...towns].sort((a, b) => b.rate - a.rate);
 
   return (
@@ -192,14 +193,16 @@ export function PopulationTrend({ refreshToken, counties, selected, onSelect }: 
           />
         </section>
         <section className="panel">
-          <h2>{current.county}與全國：每月人口指數（2016 年 1 月＝100）</h2>
+          <h2>{current ? `${current.county}與全國` : NATIONAL}：每月人口指數（2016 年 1 月＝100）</h2>
           <IndexChart
             months={data.months}
             series={[
-              { name: current.county, values: current.monthly, color: 'var(--accent)' },
-              { name: NATIONAL, values: nationalMonthly, color: 'var(--muted)' },
+              ...(current ? [{ name: current.county, values: current.monthly, color: 'var(--accent)' }] : []),
+              { name: NATIONAL, values: nationalMonthly, color: current ? 'var(--muted)' : 'var(--accent)' },
             ]}
           />
+          {current ? (
+          <>
           <h3>
             {current.county}各鄉鎮市區人口增減（{from} → {latest}）
           </h3>
@@ -227,6 +230,10 @@ export function PopulationTrend({ refreshToken, counties, selected, onSelect }: 
               </tbody>
             </table>
           </div>
+          </>
+          ) : (
+            <p className="muted">點地圖或上方「視角」選一個縣市，看它和全國的比較與各鄉鎮市區人口增減。</p>
+          )}
         </section>
       </div>
 
@@ -300,7 +307,7 @@ export function PopulationTrend({ refreshToken, counties, selected, onSelect }: 
         </div>
       </section>
       <p className="muted">
-        每月人口為各鄉鎮市區戶籍人口加總（2023 年 9 月來源缺資料，圖上斷線）；年齡結構取每年 12 月（最新為 {latest}）。來源：
+        每月人口為各鄉鎮市區戶籍人口加總（2023 年 9 月轉存缺檔，改用內政部官方村里檔補上）；年齡結構取每年 12 月（最新為 {latest}）。來源：
         {data.sources.map((s) => (
           <a key={s.url} href={s.url} target="_blank" rel="noreferrer noopener">
             {s.label}

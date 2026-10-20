@@ -272,6 +272,10 @@ const TOPIC_TABS: Record<string, Tab[]> = {
   人口: ['population', 'towns'],
   選舉: ['trend', 'legislators', 'split', 'demographics', 'compare', 'towns'],
 };
+/** 這些分頁有自己的指標選單，不吃上面的「分析指標」與全國方塊 */
+const OWN_CONTROLS: Tab[] = ['overview', 'towns', 'population', 'trend', 'legislators', 'split', 'demographics'];
+/** 縣市總覽不分主題：點主題就捲到總覽裡對應的那一區（農業沒有對應的區塊） */
+const OVERVIEW_SECTION: Record<string, string> = { 人口: '人口動態', 醫療: '醫療與長照', 教育: '少子化與教育', 房價: '經濟與住居', 經濟: '經濟與住居', 產業: '產業與就業', 能源: '能源', 財政: '財政', 選舉: '治理與民意' };
 const tabsFor = (topic: string): Tab[] => ['map', 'overview', ...(TOPIC_TABS[topic] ?? []), 'dual', 'ranking', 'data'];
 const SCALES: { key: ScaleName; label: string }[] = [
   { key: 'YlOrRd', label: '紅色系' },
@@ -788,6 +792,14 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
   if (!pair && tab === 'compare') {
     return <EmptyState message="目前沒有可對比的兩場選舉" hint="需要同一類選舉至少兩屆的資料。" />;
   }
+  const sourceGroups = new Map<string, string[]>();
+  for (const f of stats.data?.fields ?? []) {
+    if (!f.url) continue;
+    const label = `${f.source}（${f.period}）`;
+    const urls = sourceGroups.get(label) ?? [];
+    if (!urls.includes(f.url)) urls.push(f.url);
+    sourceGroups.set(label, urls);
+  }
   const mapValues = (m: Metric) => new Map(items.map((c) => [c.county, m.value(c)]));
   const formatOf = (m: Metric) => (v: number | null) => fmt(v, m.unit, m.digits);
 
@@ -821,7 +833,17 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
 
       <nav className="topic-nav" aria-label="主題">
         {TOPICS.filter((c) => c === '自訂' || metrics.some((m) => m.category === c)).map((c) => (
-          <button key={c} type="button" aria-pressed={topic === c} onClick={() => chooseTopic(c)}>
+          <button
+            key={c}
+            type="button"
+            aria-pressed={topic === c}
+            onClick={() => {
+              chooseTopic(c);
+              if (tab !== 'overview') return;
+              const h = [...document.querySelectorAll('.overview-group h2')].find((x) => x.textContent === OVERVIEW_SECTION[c]);
+              h?.scrollIntoView({ block: 'start' });
+            }}
+          >
             {c}
           </button>
         ))}
@@ -846,8 +868,8 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
         ))}
       </div>
 
-      {/* 縣市總覽看的是挑過的跨主題指標：上面的指標選單與全國方塊不需要 */}
-      {tab === 'overview' ? null : (
+      {/* 縣市總覽看的是挑過的跨主題指標；鄉鎮地圖、人口趨勢等有自己的選單：上面的指標選單與全國方塊不需要 */}
+      {OWN_CONTROLS.includes(tab) ? null : (
       <>
       <div className="stat-controls">
         {topic === '選舉' ? (
@@ -1145,12 +1167,28 @@ export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onN
             </a>
           </span>
         ))}
-        {[...new Map((stats.data?.fields ?? []).filter((f) => f.url).map((f) => [f.url, f])).values()].map((f) => (
-          <span key={f.url}>
+        {/* 同名來源（例如各級學校名錄有好幾份資料集）合成一條，資料集各自編號連結 */}
+        {[...sourceGroups].map(([label, urls]) => (
+          <span key={label}>
             、
-            <a href={f.url} target="_blank" rel="noreferrer noopener">
-              {f.source}（{f.period}）
-            </a>
+            {urls.length === 1 ? (
+              <a href={urls[0]} target="_blank" rel="noreferrer noopener">
+                {label}
+              </a>
+            ) : (
+              <>
+                {label}（資料集
+                {urls.map((url, i) => (
+                  <span key={url}>
+                    {i ? '、' : ' '}
+                    <a href={url} target="_blank" rel="noreferrer noopener">
+                      {i + 1}
+                    </a>
+                  </span>
+                ))}
+                ）
+              </>
+            )}
           </span>
         ))}
         。統計地圖的顏色代表數值；選舉表中的顏色代表黨籍。「前次同黨得票」以政黨對照，無黨籍不比較。
