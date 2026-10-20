@@ -16,6 +16,7 @@ import { CustomData } from '../components/CustomData';
 import { CountyOverview } from '../components/CountyOverview';
 import { mergeStats } from '../lib/customData';
 import { COMPARE_NOTES, noteFor } from '../lib/metricNotes';
+import { Tip, noteText } from '../components/Tip';
 import { colorAt, type ScaleName } from '../lib/colorScales';
 import { downloadCsv } from '../lib/csv';
 import { partyStyle } from '../lib/parties';
@@ -64,6 +65,7 @@ const numOrDash = (n: number | null, digits = 0) => (n === null || !Number.isFin
 // whole 為 0 或缺值時回 null（＝「無資料」），不要讓 NaN／Infinity 流進色階與表格：
 // 這個檔案其他地方都用 `?? null` 表示缺值，比率也該一致。
 const ratio = (part: number, whole: number) => (Number.isFinite(part) && Number.isFinite(whole) && whole !== 0 ? (part / whole) * 100 : null);
+const sumBy = (items: CountyItem[], f: (c: CountyItem) => number) => items.reduce((t, c) => t + f(c), 0);
 const isRate = (unit: Unit) => unit === '%' || unit === '百分點';
 const fmt = (value: number | null, unit: Unit, digits = 0) =>
   value === null ? '—' : isRate(unit) ? `${num(value, 2)}${unit === '%' ? '%' : ' 個百分點'}` : `${num(value, digits)} ${unit}`;
@@ -88,9 +90,11 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
     { key: 'population', category: '人口', label: '人口數', unit: '人', value: (c) => c.population },
     { key: 'households', category: '人口', label: '戶數', unit: '戶', value: (c) => c.households },
     { key: 'voting_age', category: '人口', label: '選舉年齡人口（20 歲以上）', unit: '人', value: (c) => c.voting_age },
-    { key: 'voting_age_ratio', category: '人口', label: '選舉年齡人口比率', unit: '%', value: (c) => ratio(c.voting_age, c.population) },
+    { key: 'voting_age_ratio', category: '人口', label: '選舉年齡人口比率', unit: '%', value: (c) => ratio(c.voting_age, c.population),
+      national: { label: '全國', value: (items) => ratio(sumBy(items, (c) => c.voting_age), sumBy(items, (c) => c.population)) } },
     { key: 'elderly', category: '人口', label: '老年人口（65 歲以上）', unit: '人', value: (c) => c.elderly },
-    { key: 'elderly_ratio', category: '人口', label: '老年人口比率', unit: '%', value: (c) => ratio(c.elderly, c.population) },
+    { key: 'elderly_ratio', category: '人口', label: '老年人口比率', unit: '%', value: (c) => ratio(c.elderly, c.population),
+      national: { label: '全國', value: (items) => ratio(sumBy(items, (c) => c.elderly), sumBy(items, (c) => c.population)) } },
     { key: 'area_km2', category: '人口', label: '面積', unit: '平方公里', digits: 2, value: (c) => c.area_km2 },
     {
       key: 'density',
@@ -130,7 +134,8 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
       const short = partyStyle(party).short;
       metrics.push(
         { key: `${election}.${party}.votes`, label: `${label}・${short}得票數`, unit: '票', category, election, field: `${party}.votes`, value: (c) => partyVotes(of(c), party)?.votes ?? null },
-        { key: `${election}.${party}.pct`, label: `${label}・${short}得票率`, unit: '%', category, election, field: `${party}.pct`, value: (c) => partyVotes(of(c), party)?.pct ?? null },
+        { key: `${election}.${party}.pct`, label: `${label}・${short}得票率`, unit: '%', category, election, field: `${party}.pct`, value: (c) => partyVotes(of(c), party)?.pct ?? null,
+          national: { label: '全國', value: (items) => ratio(sumBy(items, (c) => partyVotes(of(c), party)?.votes ?? 0), sumBy(items, (c) => of(c).valid)) } },
       );
     }
     metrics.push(
@@ -138,7 +143,9 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
       { key: `${election}.margin_pct`, label: `${label}・第一名領先幅度`, unit: '百分點', category, election, field: 'margin_pct', value: (c) => of(c).margin_pct },
     );
     if (data.items.every((c) => of(c).turnout !== null)) {
-      metrics.push({ key: `${election}.turnout`, label: `${label}・投票率`, unit: '%', category, election, field: 'turnout', value: (c) => of(c).turnout });
+      // 全國投票率＝各縣市投票數（投票率 × 選舉人數）加總 ÷ 選舉人數加總
+      metrics.push({ key: `${election}.turnout`, label: `${label}・投票率`, unit: '%', category, election, field: 'turnout', value: (c) => of(c).turnout,
+        national: { label: '全國', value: (items) => ratio(sumBy(items, (c) => ((of(c).turnout ?? 0) * (of(c).electorate ?? 0)) / 100), sumBy(items, (c) => of(c).electorate ?? 0)) } });
     }
   }
   // 統計檔的類別排在選舉前面、自訂排最後
@@ -301,19 +308,19 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
       <div className="stat-row">
         <div className="stat-tile">
           <b className="stat-value">{num(county.population)}</b>
-          <span className="stat-label">人口數（{num(county.households)} 戶）</span>
+          <span className="stat-label"><Tip text={noteText('population')}>人口數</Tip>（{num(county.households)} 戶）</span>
         </div>
         <div className="stat-tile">
           <b className="stat-value">{num(county.voting_age)}</b>
-          <span className="stat-label">選舉年齡人口（20 歲以上，{numOrDash(ratio(county.voting_age, county.population), 2)}%）</span>
+          <span className="stat-label"><Tip text={noteText('voting_age_ratio')}>選舉年齡人口</Tip>（20 歲以上，{numOrDash(ratio(county.voting_age, county.population), 2)}%）</span>
         </div>
         <div className="stat-tile">
           <b className="stat-value">{num(county.elderly)}</b>
-          <span className="stat-label">老年人口（65 歲以上，{numOrDash(ratio(county.elderly, county.population), 2)}%）</span>
+          <span className="stat-label"><Tip text={noteText('elderly_ratio')}>老年人口</Tip>（65 歲以上，{numOrDash(ratio(county.elderly, county.population), 2)}%）</span>
         </div>
         <div className="stat-tile">
           <b className="stat-value">{numOrDash(perArea(county.population, county.area_km2))}</b>
-          <span className="stat-label">人口密度（人／平方公里；面積 {num(county.area_km2, 2)} 平方公里）</span>
+          <span className="stat-label"><Tip text={noteText('density')}>人口密度</Tip>（人／平方公里；面積 {num(county.area_km2, 2)} 平方公里）</span>
         </div>
       </div>
       {topicMetrics.length ? (
@@ -321,7 +328,7 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
           <tbody>
             {topicMetrics.map((m) => (
               <tr key={m.key}>
-                <th scope="row">{m.label}</th>
+                <th scope="row"><Tip text={noteText(m.key)}>{m.label}</Tip></th>
                 <td className="num">{fmt(m.value(county), m.unit, m.digits)}</td>
               </tr>
             ))}
@@ -399,7 +406,7 @@ function MetricNote({ metricKey }: { metricKey: string }) {
 
 function MetricSelect({ label, options, value, onChange }: { label: string; options: { key: string; label: string; category?: string }[]; value: string; onChange: (key: string) => void }) {
   const option = (m: { key: string; label: string }) => (
-    <option key={m.key} value={m.key}>
+    <option key={m.key} value={m.key} title={noteText(m.key)}>
       {m.label}
     </option>
   );
@@ -492,7 +499,10 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
   const [pairKey, setPairKey] = useParam<string>('pair', 'president_2024.民主進步黨.votes');
   const [scale, setScale] = useParam<ScaleName>('scale', 'YlOrRd', SCALES.map((x) => x.key));
   const [top, setTop] = useParam<string>('top', '10', TOP_N);
-  const [tabParam, setTab] = useParam<Tab>('tab', 'map', TABS.map((x) => x.key));
+  // 一進來是全國總覽
+  const [tabParam, setTab] = useParam<Tab>('tab', 'overview', TABS.map((x) => x.key));
+  // 縣市總覽的範圍：「全國」或縣市名（跟互動地圖選的縣市分開記，預設全國）
+  const [area, setArea] = useParam<string>('area', '全國');
   const [selected, setSelected] = useParam<string>('county', '臺北市');
 
   // 醫療、房價、農地：沒有這個檔就只是少幾個指標，不擋整頁
@@ -521,7 +531,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
   const topicMetrics = metrics.filter((m) => m.category === topic);
   const tabs = TABS.filter((t) => tabsFor(topic).includes(t.key));
   // 換主題後原本的分頁可能不在這個主題裡（例如醫療沒有「得票趨勢」）：落回互動地圖
-  const tab = tabs.some((t) => t.key === tabParam) ? tabParam : 'map';
+  const tab = tabs.some((t) => t.key === tabParam) ? tabParam : 'overview';
   const chooseTopic = (c: string) => {
     setTopicParam(c === '自訂' ? '自訂' : '');
     const first = metrics.find((m) => m.category === c);
@@ -637,12 +647,12 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
 
       {tab === 'overview' ? (
         <CountyOverview
-          county={current}
+          area={area}
           items={items}
           metrics={metrics}
           format={(m, v) => fmt(v, m.unit as Unit, (m as Metric).digits)}
           refreshToken={refreshToken}
-          onSelectCounty={setSelected}
+          onSelectCounty={(a) => { setArea(a === '全國' ? '' : a); if (a !== '全國') setSelected(a); }}
         />
       ) : null}
 
@@ -694,8 +704,8 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
                       <th scope="col">縣市</th>
                       <th scope="col" className="num">{data.elections[pair.older.election].label}</th>
                       <th scope="col" className="num">{data.elections[pair.newer.election].label}</th>
-                      <th scope="col" className="num">差異</th>
-                      <th scope="col" className="num">變化率</th>
+                      <th scope="col" className="num"><Tip text={`定義：${COMPARE_NOTES.diff.definition}\n意義：${COMPARE_NOTES.diff.meaning}`}>差異</Tip></th>
+                      <th scope="col" className="num"><Tip text={`定義：${COMPARE_NOTES.rate.definition}\n意義：${COMPARE_NOTES.rate.meaning}`}>變化率</Tip></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -763,7 +773,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
                   <th scope="col">縣市</th>
                   {tableMetrics.map((m) => (
                     <th key={m.key} scope="col" className="num">
-                      {m.label}
+                      <Tip text={noteText(m.key)}>{m.label}</Tip>
                     </th>
                   ))}
                 </tr>

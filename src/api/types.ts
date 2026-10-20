@@ -958,7 +958,8 @@ export interface CountyStatsResponse {
 /** /county-trends：縣市總覽的趨勢線（scripts/county-stats.mjs 一起產生） */
 export interface CountyTrendsResponse {
   meta: { generated_at: string };
-  series: Record<string, { label: string; unit: string; points: { period: string; values: Record<string, number | null> }[] }>;
+  /** national：不能由縣市加總的序列（所得、失業率、老年人口比率）另存官方全國值 */
+  series: Record<string, { label: string; unit: string; points: { period: string; national?: number; values: Record<string, number | null> }[] }>;
 }
 
 /* ---------- /council ---------- */

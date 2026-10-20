@@ -1242,6 +1242,16 @@ a.stat-tile:hover { border-color: #98a2b3; box-shadow: var(--card-base-hover); t
 .source-count { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- 縣市統計地圖 ---------- */
+/* 滑過顯示說明（components/Tip.tsx）：純 CSS，內容放在 data-tip */
+.tip { position: relative; cursor: help; text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 3px; }
+.tip:hover::after, .tip:focus-visible::after {
+  content: attr(data-tip); position: absolute; left: 0; top: calc(100% + 6px); z-index: 50;
+  width: max-content; max-width: min(300px, 80vw); white-space: pre-line; text-align: left;
+  padding: 8px 10px; border-radius: 8px; background: var(--ink); color: #fff;
+  font-size: 12.5px; font-weight: 400; line-height: 1.55; letter-spacing: 0; box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+}
+th.num .tip:hover::after, th.num .tip:focus-visible::after { left: auto; right: 0; }
 .metric-note { margin: 0 0 var(--space-3); padding: 10px 14px; border-left: 3px solid var(--accent-line); background: var(--accent-soft); border-radius: 0 var(--radius-md) var(--radius-md) 0; font-size: var(--fs-sm); line-height: 1.7; }
 .overview-note { font-size: var(--fs-sm); }
 .overview-howto summary { cursor: pointer; font-weight: 600; color: var(--accent-ink); }

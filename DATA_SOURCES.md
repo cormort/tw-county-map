@@ -154,7 +154,7 @@ curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile
 | --- | --- | --- |
 | `counties.json` | 縣市人口、戶數、面積、年齡、歷屆選舉、縣市輪廓、區域立委 | 中選會選舉資料庫（<https://github.com/kiang/db.cec.gov.tw> 轉存）、戶政司村里單一年齡人口（<https://github.com/kiang/data.moi.gov.tw>）、縣市界（<https://github.com/ronnywang/twgeojson>）、立法院開放資料（<https://data.ly.gov.tw/>） |
 | `demographics.json` | 鄉鎮市區年齡結構與得票 | 中選會、戶政司（同上） |
-| `population-trend.json` | 縣市每月人口（2016-01 起）、鄉鎮各年人口 | 戶政司（同上） |
+| `population-trend.json` | 縣市每月人口（2016-01 起）、鄉鎮各年人口 | 戶政司（同上）。**2023-09 是手動補的**：kiang 轉存的那份是內政部伺服器的錯誤訊息（2023-10-13 自動更新時下載失敗），ly-dashboard 建置時記成 null、圖上斷線；這裡改用官方 112 年 9 月村里檔（data.gov.tw 77132）加總補上。ly-dashboard 的建置腳本修好之前，重新快照會把缺口帶回來，快照後要再補一次 |
 | `town-map.json` | 鄉鎮市區界 | 內政部 2023 年鄉鎮市區界（<https://github.com/kiang/taiwan_basecode> 轉存） |
 | `legislator-votes.json`、`split-ticket*.json` | 立委得票、分裂投票 | 中選會、立法院開放資料 |
 | `council-*.json` | 六都議員席次 | 中選會 |

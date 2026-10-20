@@ -374,7 +374,7 @@ const trends = {}; // key → { label, unit, points: [{ period, values: { 縣市
 const incomeRows = (await fetchDgbas('https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/232214/006-%E5%B9%B3%E5%9D%87%E6%AF%8F%E6%88%B6%E5%8F%AF%E6%94%AF%E9%85%8D%E6%89%80%E5%BE%97%E6%8C%89%E5%8D%80%E5%9F%9F%E5%88%A5%E5%88%86.csv'))
   .replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(',').map((x) => x.replace(/"/g, '')));
 const incomeHeader = incomeRows[0].map((h) => h.replace(/-元$/, ''));
-const incomeByYear = incomeRows.slice(1).map((r) => ({ period: r[0], values: Object.fromEntries(incomeHeader.slice(1).map((h, i) => [h, Number(r[i + 1])]).filter(([h]) => items[h])) }));
+const incomeByYear = incomeRows.slice(1).map((r) => ({ period: r[0], national: Number(r[1]), values: Object.fromEntries(incomeHeader.slice(1).map((h, i) => [h, Number(r[i + 1])]).filter(([h]) => items[h])) }));
 const incomeLatest = incomeByYear.at(-1);
 const nationalIncome = Number(incomeRows.at(-1)[1]);
 trends.income = { label: '平均每戶可支配所得', unit: '元', points: incomeByYear.slice(-10) };
@@ -398,7 +398,7 @@ const unempByYear = [...unempXml.matchAll(/<縣市別失業率>([\s\S]*?)<\/縣�
   national: Number(body.match(/<臺灣地區_Taiwan_Area_百分比>([^<]*)</)?.[1]),
 })).filter((r) => /^\d{4}$/.test(r.period) && Number(r.period) < now.getUTCFullYear());
 const unempLatest = unempByYear.at(-1);
-trends.unemployment = { label: '失業率', unit: '%', points: unempByYear.slice(-10).map(({ period, values }) => ({ period, values })) };
+trends.unemployment = { label: '失業率', unit: '%', points: unempByYear.slice(-10) };
 fields.push({ key: 'unemployment', label: '失業率', unit: '%', category: '經濟', period: `${unempLatest.period} 年`, source: '主計總處人力資源調查', url: 'https://data.gov.tw/dataset/6640', national: unempLatest.national });
 for (const c of COUNTIES) items[c].unemployment = unempLatest.values[c] ?? null;
 
@@ -457,7 +457,7 @@ for (const y of trendYears) {
   trends.births.points.push({ period: String(y), values: births });
   const dec = await villageCsv('population', `${y}/12`);
   if (!dec) throw new Error(`缺 ${y}/12 的村里人口資料`);
-  trends.elderly_ratio.points.push({ period: String(y), values: Object.fromEntries(COUNTIES.map((c) => [c, share(elderlyOf(dec, c), dec[c]['人口數'])])) });
+  trends.elderly_ratio.points.push({ period: String(y), national: share(COUNTIES.reduce((s, c) => s + elderlyOf(dec, c), 0), COUNTIES.reduce((s, c) => s + dec[c]['人口數'], 0)), values: Object.fromEntries(COUNTIES.map((c) => [c, share(elderlyOf(dec, c), dec[c]['人口數'])])) });
 }
 await writeFile(TRENDS_OUT, JSON.stringify({ meta: { generated_at: new Date().toISOString() }, series: trends }));
 
