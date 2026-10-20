@@ -281,8 +281,51 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
     return t && fromYear && toYear && t.population[fromYear] ? ((t.population[toYear] - t.population[fromYear]) / t.population[fromYear]) * 100 : null;
   };
 
+  // 全國視角：五大分區（北部、中部、南部、東部、外島）彙整對照
+  const regionalSummary = useMemo(() => {
+    if (county) return null;
+    const totalPop = items.reduce((s, c) => s + c.population, 0);
+    return REGIONS.map((r) => {
+      const cItems = items.filter((c) => r.counties.includes(c.county));
+      const pop = cItems.reduce((s, c) => s + c.population, 0);
+      const popPct = totalPop > 0 ? (pop / totalPop) * 100 : 0;
+
+      const getAvg = (key: string): number | null => {
+        const m = metrics.find((x) => x.key === key);
+        if (!m) return null;
+        const vals = cItems.map((c) => m.value(c)).filter((x): x is number => x !== null);
+        return vals.length ? vals.reduce((s, x) => s + x, 0) / vals.length : null;
+      };
+
+      const income = getAvg('income');
+      const elderly = getAvg('elderly_ratio');
+      const beds = getAvg('beds_per10k');
+      const ownRevenue = getAvg('own_revenue_ratio');
+
+      return {
+        name: r.name,
+        counties: cItems.map((c) => c.county),
+        pop,
+        popPct,
+        income,
+        elderly,
+        beds,
+        ownRevenue,
+      };
+    });
+  }, [county, items, metrics]);
+
   return (
     <section className="county-overview" aria-label={`${area}總覽`}>
+      {county && (
+        <div className="print-only-banner">
+          <h1>中華民國 {county.county} 施政重點成績單與治理概況</h1>
+          <p>
+            首長：{county.elections.mayor_2022.candidates[0]?.name ?? '—'}（{county.elections.mayor_2022.candidates[0]?.party}）｜ 2022 當選得票率：{county.elections.mayor_2022.candidates[0]?.pct.toFixed(2)}% ｜ 資料期：113–114 年最新公務統計
+          </p>
+        </div>
+      )}
+
       <details className="metric-note overview-howto">
         <summary>怎麼看這些卡片？</summary>
         {county ? (
@@ -296,6 +339,118 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
         <p><b>趨勢線</b>　近幾年同一個指標的走勢，滑過可以看每年的數字；只畫形狀，不同卡片之間的高低不能直接比。</p>
         <p><b>這是什麼？</b>　展開可以看每個指標怎麼算、代表什麼意思。</p>
       </details>
+
+      {!county && (
+        <>
+          <section className="panel national-macro-panel">
+            <div className="national-macro-header">
+              <h2>🇹🇼 中華民國全國治理宏觀指標</h2>
+              <span className="muted">全國 22 縣市綜合數據彙整（總統與中央內閣視角）</span>
+            </div>
+            <div className="national-macro-grid">
+              <div className="national-macro-card">
+                <span className="macro-label">總人口數</span>
+                <b className="macro-val">{items.reduce((s, c) => s + c.population, 0).toLocaleString('zh-TW')} 人</b>
+                <span className="macro-sub muted">戶數：{items.reduce((s, c) => s + c.households, 0).toLocaleString('zh-TW')} 戶</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">65歲以上高齡人口比</span>
+                <b className="macro-val">{((items.reduce((s, c) => s + c.elderly, 0) / (items.reduce((s, c) => s + c.population, 0) || 1)) * 100).toFixed(2)}%</b>
+                <span className="macro-sub muted">邁入超高齡社會門檻</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">年度出生人口數</span>
+                <b className="macro-val">{(() => {
+                  const m = byKey.get('births');
+                  const v = m ? nationalOf(m).v : null;
+                  return v !== null ? `${v.toLocaleString('zh-TW')} 人` : '—';
+                })()}</b>
+                <span className="macro-sub muted">少子化核心國安課題</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">平均每戶可支配所得</span>
+                <b className="macro-val">{(() => {
+                  const m = byKey.get('income');
+                  const v = m ? nationalOf(m).v : null;
+                  return v !== null ? `${Math.round(v).toLocaleString('zh-TW')} 元` : '—';
+                })()}</b>
+                <span className="macro-sub muted">家庭購買力中位水準</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">平均失業率</span>
+                <b className="macro-val">{(() => {
+                  const m = byKey.get('unemployment');
+                  const v = m ? nationalOf(m).v : null;
+                  return v !== null ? `${v.toFixed(2)}%` : '—';
+                })()}</b>
+                <span className="macro-sub muted">就業市場活絡度</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">地方自籌財源比率</span>
+                <b className="macro-val">{(() => {
+                  const m = byKey.get('own_revenue_ratio');
+                  const v = m ? nationalOf(m).v : null;
+                  return v !== null ? `${v.toFixed(2)}%` : '—';
+                })()}</b>
+                <span className="macro-sub muted">地方財政自主能力</span>
+              </div>
+            </div>
+          </section>
+
+          {regionalSummary && (
+            <section className="panel regional-disparity-panel">
+              <div className="regional-disparity-header">
+                <h2>🗺️ 國土空間與五大區域平衡對照表</h2>
+                <p className="muted">國發會區域劃分（北部、中部、南部、東部、外島），檢視人口集中度、所得落差與醫療財政資源配置</p>
+              </div>
+              <div className="regional-table-wrapper">
+                <table className="regional-table">
+                  <thead>
+                    <tr>
+                      <th>分區</th>
+                      <th>涵蓋縣市</th>
+                      <th className="num">人口數</th>
+                      <th className="num">人口佔比</th>
+                      <th className="num">平均所得</th>
+                      <th className="num">高齡比率</th>
+                      <th className="num">每萬人病床</th>
+                      <th className="num">自籌財源率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {regionalSummary.map((r) => (
+                      <tr key={r.name}>
+                        <td><b>{r.name}</b></td>
+                        <td>
+                          <div className="regional-counties-chips">
+                            {r.counties.map((cName) => (
+                              <button
+                                key={cName}
+                                type="button"
+                                className="link-button county-chip"
+                                onClick={() => onSelectCounty(cName)}
+                                title={`切換到 ${cName} 總覽`}
+                              >
+                                {cName}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="num">{r.pop.toLocaleString('zh-TW')}</td>
+                        <td className="num"><b>{r.popPct.toFixed(1)}%</b></td>
+                        <td className="num">{r.income !== null ? `${Math.round(r.income).toLocaleString('zh-TW')} 元` : '—'}</td>
+                        <td className="num">{r.elderly !== null ? `${r.elderly.toFixed(1)}%` : '—'}</td>
+                        <td className="num">{r.beds !== null ? `${r.beds.toFixed(1)} 床` : '—'}</td>
+                        <td className="num">{r.ownRevenue !== null ? `${r.ownRevenue.toFixed(1)}%` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
+      )}
 
       {county && (
         <div className="panel overview-benchmark-panel">
@@ -340,6 +495,14 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
                 依各項治理指標之良窳極性（如所得、病床、自籌財源「愈高愈佳」；失業、負債、老化速度「愈低愈佳」），由全國排位精選出該縣市表現最頂尖與最需關注的關鍵指標。
               </p>
             </div>
+            <button
+              type="button"
+              className="print-briefing-btn stat-btn"
+              onClick={() => window.print()}
+              title="列印或另存為 A4 首長簡報 PDF"
+            >
+              🖨️ 列印治理簡報
+            </button>
           </div>
           <div className="scorecard-grid">
             <div className="scorecard-col scorecard-strengths">
