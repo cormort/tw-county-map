@@ -1,6 +1,6 @@
 import { useMemo, type CSSProperties } from 'react';
 import { buildUrl } from '../api/client';
-import type { CountiesResponse, CountyElection, CountyElectionKey, CountyItem, CouncilResponse } from '../api/types';
+import type { CountiesResponse, CountyElection, CountyElectionKey, CountyItem, CountyStatsResponse, CouncilResponse } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/DataStates';
 import { useApi } from '../hooks/useApi';
 import { useParam } from '../hooks/useParam';
@@ -24,7 +24,8 @@ export interface CountiesPageProps {
 
 /* ---------- 指標 ---------- */
 
-type Unit = '人' | '戶' | '%' | '票' | '百分點' | '平方公里' | '人／平方公里';
+// county-stats.json 的指標自帶單位（家、床、萬元／坪…），所以開放成字串
+type Unit = '人' | '戶' | '%' | '票' | '百分點' | '平方公里' | '人／平方公里' | (string & {});
 
 interface Metric {
   key: string;
@@ -73,7 +74,7 @@ function partyVotes(e: CountyElection, party: string): { votes: number; pct: num
 }
 
 /** 由資料列出所有可分析的數值指標（相當於 tw_statistic_map 的「數值欄位」）；匯出給 render smoke 驗指標清單 */
-export function buildMetrics(data: CountiesResponse): Metric[] {
+export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse): Metric[] {
   const metrics: Metric[] = [
     { key: 'population', label: '人口數', unit: '人', value: (c) => c.population },
     { key: 'households', label: '戶數', unit: '戶', value: (c) => c.households },
@@ -97,6 +98,16 @@ export function buildMetrics(data: CountiesResponse): Metric[] {
       },
     },
   ];
+  for (const f of stats?.fields ?? []) {
+    metrics.push({
+      key: f.key,
+      label: `${f.label}（${f.period}）`,
+      unit: f.unit,
+      digits: f.digits,
+      value: (c) => stats?.items[c.county]?.[f.key] ?? null,
+      national: f.national === undefined ? undefined : { label: '全國', value: () => f.national ?? null },
+    });
+  }
   for (const election of ELECTIONS) {
     const label = data.elections[election].label;
     const of = (c: CountyItem) => c.elections[election];
@@ -396,7 +407,9 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
   const [tab, setTab] = useParam<Tab>('tab', 'map', TABS.map((x) => x.key));
   const [selected, setSelected] = useParam<string>('county', '臺北市');
 
-  const metrics = useMemo(() => (res.data ? buildMetrics(res.data) : []), [res.data]);
+  // 醫療、房價、農地：沒有這個檔就只是少幾個指標，不擋整頁
+  const stats = useApi<CountyStatsResponse>(buildUrl('/county-stats'), { refreshToken });
+  const metrics = useMemo(() => (res.data ? buildMetrics(res.data, stats.data ?? undefined) : []), [res.data, stats.data]);
   const pairs = useMemo(() => (res.data ? buildPairs(metrics, res.data) : []), [metrics, res.data]);
 
   if (res.phase === 'error') return <ErrorState title="無法取得縣市資料（/api/v1/counties）" error={res.error} onRetry={res.reload} />;
@@ -453,6 +466,9 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
 
       <div className="stat-controls">
         <MetricSelect label="主要分析指標" options={metrics} value={metric.key} onChange={setMetricKey} />
+        {/* 分頁專用的選單也放在這一列，不要散在分頁按鈕下面 */}
+        {tab === 'dual' ? <MetricSelect label="第二個分析指標" options={metrics} value={metric2.key} onChange={setMetric2Key} /> : null}
+        {tab === 'compare' ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
         <span className="muted">人口資料：{data.population_month}</span>
       </div>
       <Overview metric={metric} items={items} />
@@ -495,9 +511,6 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
 
       {tab === 'dual' ? (
         <>
-          <div className="stat-controls">
-            <MetricSelect label="第二個分析指標" options={metrics} value={metric2.key} onChange={setMetric2Key} />
-          </div>
           <div className="stat-dual">
             <section className="panel">
               <ChoroplethMap items={items} values={mapValues(metric)} scale="Blues" format={formatOf(metric)} title={metric.label} selected={current.county} onSelect={setSelected} />
@@ -511,9 +524,6 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
 
       {tab === 'compare' ? (
         <>
-          <div className="stat-controls">
-            <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} />
-          </div>
           <div className="county-layout">
             <section className="panel county-map-panel">
               <ChoroplethMap
@@ -633,6 +643,14 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
             {i ? '、' : ''}
             <a href={s.url} target="_blank" rel="noreferrer noopener">
               {s.label}
+            </a>
+          </span>
+        ))}
+        {[...new Map((stats.data?.fields ?? []).map((f) => [f.url, f])).values()].map((f) => (
+          <span key={f.url}>
+            、
+            <a href={f.url} target="_blank" rel="noreferrer noopener">
+              {f.source}（{f.period}）
             </a>
           </span>
         ))}

@@ -39,6 +39,16 @@ API=http://127.0.0.1:8787 node scripts/snapshot.mjs   # 指定別的來源
 `population-trend.json`、`town-map.json`、`split-ticket.json` 與每年一份 `split-ticket-year-YYYY.json`、
 六都各一份 `council-county-<縣市>.json`（議員席次），以及記錄產生時間的 `_snapshot.json`（頁首會顯示）。
 
+醫療、房價、農地另有一支腳本，直接抓政府開放資料，不經過立委觀測站：
+
+```bash
+node scripts/county-stats.mjs   # 需要 pdftotext（brew install poppler）與 unzip
+```
+
+寫出 `public/data/county-stats.json`，裡面每個指標都自帶名稱、單位、年度與來源，前端照著自動長出指標，
+要再加統計只要改這支腳本。來源有三個：衛福部醫事機構服務量統計年報（PDF 表 20／24／28）、
+內政部實價登錄（最近四季）、農業部農耕土地面積。新一年要換腳本開頭的 `MOHW_PDF`、`MOHW_YEAR`、`SEASONS`。
+
 議員席次只有六都（臺北市、新北市、桃園市、臺中市、臺南市、高雄市）有建置資料，其餘縣市不顯示那個區塊。
 一屆動輒十幾個 0 席政黨，表格只列有席次的，其餘在下方用一句話帶過。
 
@@ -54,5 +64,5 @@ API=http://127.0.0.1:8787 node scripts/snapshot.mjs   # 指定別的來源
 
 ## 資料來源
 
-中央選舉委員會（歷屆選舉結果）、內政部戶政司（人口、戶數、面積）、立法院開放資料（立委）。
+中央選舉委員會（歷屆選舉結果）、內政部戶政司（人口、戶數、面積）、立法院開放資料（立委）、衛福部統計處（醫療）、內政部實價登錄（房價、成交量）、農業部（耕地）。
 原始彙整與計算在立委觀測站的後端，這裡只放結果快照。

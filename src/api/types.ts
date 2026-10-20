@@ -932,6 +932,27 @@ export interface CountiesResponse {
   items: CountyItem[];
 }
 
+/* ---------- /county-stats（scripts/county-stats.mjs） ---------- */
+
+export interface CountyStatField {
+  key: string;
+  label: string;
+  unit: string;
+  /** 資料時點，例如「113 年底」 */
+  period: string;
+  source: string;
+  url: string;
+  digits?: number;
+  /** 比率、中位數這類不能相加的指標：全國值由腳本直接算好 */
+  national?: number;
+}
+
+export interface CountyStatsResponse {
+  meta: { generated_at: string };
+  fields: CountyStatField[];
+  items: Record<string, Record<string, number | null>>;
+}
+
 /* ---------- /council ---------- */
 
 export type CouncilKind = 'area' | 'plain' | 'mountain';
