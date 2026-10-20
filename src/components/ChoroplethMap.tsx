@@ -30,6 +30,9 @@ export function ChoroplethMap({
   outlines = [],
   level = 'county',
   focusOutline,
+  colorOf,
+  formatCounty,
+  legendItems,
 }: {
   items: { county: string; path: string }[];
   values: Map<string, number | null>;
@@ -48,6 +51,12 @@ export function ChoroplethMap({
   level?: 'county' | 'town';
   /** 特別加粗的外框（相鄰縣市模式的主縣市） */
   focusOutline?: string;
+  /** 自訂填色（例如政黨勝選地圖） */
+  colorOf?: (county: string, value: number | null) => string | null;
+  /** 自訂縣市標示文字（含政黨或候選人） */
+  formatCounty?: (county: string, value: number | null) => string;
+  /** 類別型圖例（例如政黨色塊圖例） */
+  legendItems?: { label: string; color: string }[];
 }) {
   const [hover, setHover] = useState<string | null>(null);
   // 只採計「有限的數字」：undefined（Map 沒有這個鍵、或資料檔少了欄位）與 NaN（除以 0、
@@ -69,14 +78,16 @@ export function ChoroplethMap({
     ordered.map((c) => {
       const raw = values.get(c.county);
       const v = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
-      const label = `${c.county}：${format(v)}`;
+      const customColor = colorOf?.(c.county, v);
+      const fillStyle = customColor ?? (v === null ? 'var(--seat-off)' : colorAt(scale, t(v)));
+      const label = formatCounty ? formatCounty(c.county, v) : `${c.county}：${format(v)}`;
       return (
         <path
           key={c.county}
           d={c.path}
           className="county-shape"
           aria-current={c.county === selected ? 'true' : undefined}
-          style={{ fill: v === null ? 'var(--seat-off)' : colorAt(scale, t(v)) }}
+          style={{ fill: fillStyle }}
           tabIndex={inset ? -1 : 0}
           role="button"
           aria-label={label}
@@ -138,13 +149,22 @@ export function ChoroplethMap({
       <p className="stat-map-hover" aria-live="polite">
         {focus ? (
           <>
-            <b>{focus}</b>　{format(values.get(focus) ?? null)}
+            <b>{focus}</b>　{formatCounty ? formatCounty(focus, values.get(focus) ?? null).replace(`${focus}：`, '') : format(values.get(focus) ?? null)}
           </>
         ) : (
           <span className="muted">滑過或點選地圖看數值</span>
         )}
       </p>
-      {nums.length ? (
+      {legendItems && legendItems.length ? (
+        <div className="stat-legend-categories">
+          {legendItems.map((item) => (
+            <span key={item.label} className="legend-chip">
+              <i style={{ background: item.color }} aria-hidden="true" />
+              <span>{item.label}</span>
+            </span>
+          ))}
+        </div>
+      ) : nums.length ? (
         <div className="stat-legend">
           <span>{format(min)}</span>
           <i style={{ background: gradient(scale) }} aria-hidden="true" />

@@ -20,9 +20,13 @@ import { Tip, noteText } from '../components/Tip';
 import { colorAt, type ScaleName } from '../lib/colorScales';
 import { downloadCsv } from '../lib/csv';
 import { partyStyle } from '../lib/parties';
+import { NATIONAL } from '../components/CountyOptions';
 
 export interface CountiesPageProps {
   refreshToken: number;
+  /** 視角：「全國」或縣市名稱（header 的選單，全站共用） */
+  scope: string;
+  onScopeChange: (scope: string) => void;
   onOpenId: (id: string) => void;
   onNavigate: (href: string) => void;
 }
@@ -40,6 +44,10 @@ interface Metric {
   period?: string;
   /** 頁首的類別按鈕（人口、選舉、醫療…）；選單只列目前類別的指標 */
   category: string;
+  /** 次分類（人口結構、少子化、長照據點等，供下拉選單 optgroup 分組） */
+  subcategory?: string;
+  /** 數值類型：比率/率（rate）或總量/計數（count），供篩選切換 */
+  kind?: 'rate' | 'count';
   unit: Unit;
   /** 非比率的小數位數（面積 2 位、密度 1 位）；比率固定 2 位 */
   digits?: number;
@@ -52,6 +60,8 @@ interface Metric {
    * 22 個縣市密度的和沒有意義，全國要一起算（總人口 ÷ 總面積）。
    */
   national?: { value: (items: CountyItem[]) => number | null; label: string };
+  /** 選舉第一名政黨版圖填色用 */
+  partyOf?: (c: CountyItem) => string | null;
 }
 
 const ELECTIONS: CountyElectionKey[] = ['president_2024', 'president_2020', 'mayor_2022', 'mayor_2018'];
@@ -84,22 +94,61 @@ function partyVotes(e: CountyElection, party: string): { votes: number; pct: num
   return { votes: list.reduce((s, c) => s + c.votes, 0), pct: list.reduce((s, c) => s + c.pct, 0) };
 }
 
+function inferKind(unit: Unit, key: string): 'rate' | 'count' {
+  if (unit === '%' || unit === '百分點' || unit === '‰' || unit.includes('率') || unit.includes('比') || unit.includes('／') || key.includes('rate') || key.includes('ratio') || key.includes('pct') || key.includes('density') || key.includes('speed')) {
+    return 'rate';
+  }
+  return 'count';
+}
+
+function inferSubcategory(m: { category: string; label: string; key: string }): string {
+  if (m.category === '人口') {
+    if (m.key === 'population' || m.key === 'households' || m.key === 'density' || m.key === 'area_km2') return '基本與密度';
+    if (m.label.includes('學齡') || m.label.includes('國小')) return '少子化與學齡';
+    if (m.label.includes('老') || m.label.includes('高齡') || m.label.includes('扶')) return '高齡與扶養';
+    if (m.label.includes('出生') || m.label.includes('死亡') || m.label.includes('遷') || m.label.includes('增減')) return '人口動態與消長';
+    if (m.label.includes('住民') || m.label.includes('配偶') || m.label.includes('性比例') || m.label.includes('男性') || m.label.includes('女性')) return '性別與族群';
+    return '其他人口指標';
+  }
+  if (m.category === '醫療') {
+    if (m.label.includes('長照')) return '長照體系';
+    if (m.label.includes('健保')) return '全民健保';
+    return '醫療量能與醫事人員';
+  }
+  if (m.category === '產業') {
+    if (m.label.includes('工廠')) return '製造與工廠';
+    if (m.label.includes('勞保') || m.label.includes('就業')) return '勞工就業';
+    return '企業與商業登記';
+  }
+  if (m.category === '教育') {
+    if (m.label.includes('學齡兒童')) return '學童分佈';
+    return '各級學校數';
+  }
+  if (m.category === '經濟') {
+    if (m.label.includes('國保') || m.label.includes('國民年金')) return '國民年金';
+    return '所得與就業環境';
+  }
+  return m.category;
+}
+
 /** 由資料列出所有可分析的數值指標（相當於 tw_statistic_map 的「數值欄位」）；匯出給 render smoke 驗指標清單 */
 export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse): Metric[] {
   const metrics: Metric[] = [
-    { key: 'population', category: '人口', label: '人口數', unit: '人', value: (c) => c.population },
-    { key: 'households', category: '人口', label: '戶數', unit: '戶', value: (c) => c.households },
-    { key: 'voting_age', category: '人口', label: '選舉年齡人口（20 歲以上）', unit: '人', value: (c) => c.voting_age },
-    { key: 'voting_age_ratio', category: '人口', label: '選舉年齡人口比率', unit: '%', value: (c) => ratio(c.voting_age, c.population),
+    { key: 'population', category: '人口', subcategory: '基本與密度', kind: 'count', label: '人口數', unit: '人', value: (c) => c.population },
+    { key: 'households', category: '人口', subcategory: '基本與密度', kind: 'count', label: '戶數', unit: '戶', value: (c) => c.households },
+    { key: 'voting_age', category: '人口', subcategory: '人口結構', kind: 'count', label: '選舉年齡人口（20 歲以上）', unit: '人', value: (c) => c.voting_age },
+    { key: 'voting_age_ratio', category: '人口', subcategory: '人口結構', kind: 'rate', label: '選舉年齡人口比率', unit: '%', value: (c) => ratio(c.voting_age, c.population),
       national: { label: '全國', value: (items) => ratio(sumBy(items, (c) => c.voting_age), sumBy(items, (c) => c.population)) } },
-    { key: 'elderly', category: '人口', label: '老年人口（65 歲以上）', unit: '人', value: (c) => c.elderly },
-    { key: 'elderly_ratio', category: '人口', label: '老年人口比率', unit: '%', value: (c) => ratio(c.elderly, c.population),
+    { key: 'elderly', category: '人口', subcategory: '高齡與扶養', kind: 'count', label: '老年人口（65 歲以上）', unit: '人', value: (c) => c.elderly },
+    { key: 'elderly_ratio', category: '人口', subcategory: '高齡與扶養', kind: 'rate', label: '老年人口比率', unit: '%', value: (c) => ratio(c.elderly, c.population),
       national: { label: '全國', value: (items) => ratio(sumBy(items, (c) => c.elderly), sumBy(items, (c) => c.population)) } },
-    { key: 'area_km2', category: '人口', label: '面積', unit: '平方公里', digits: 2, value: (c) => c.area_km2 },
+    { key: 'area_km2', category: '人口', subcategory: '基本與密度', kind: 'count', label: '面積', unit: '平方公里', digits: 2, value: (c) => c.area_km2 },
     {
       key: 'density',
       label: '人口密度',
       category: '人口',
+      subcategory: '基本與密度',
+      kind: 'rate',
       unit: '人／平方公里',
       value: (c) => perArea(c.population, c.area_km2),
       // 22 個縣市密度相加沒有意義：全國那一格改成「總人口 ÷ 總面積」
@@ -113,12 +162,17 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
     },
   ];
   for (const f of stats?.fields ?? []) {
+    const category = f.key.startsWith('custom.') ? '自訂' : f.category ?? '其他';
+    const kind = inferKind(f.unit, f.key);
+    const subcategory = inferSubcategory({ category, label: f.label, key: f.key });
     metrics.push({
       key: f.key,
       label: `${f.label}（${f.period}）`,
       short: f.label,
       period: f.period,
-      category: f.key.startsWith('custom.') ? '自訂' : f.category ?? '其他',
+      category,
+      subcategory,
+      kind,
       unit: f.unit,
       digits: f.digits,
       value: (c) => stats?.items[c.county]?.[f.key] ?? null,
@@ -129,22 +183,37 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
     const label = data.elections[election].label;
     const category = '選舉';
     const of = (c: CountyItem) => c.elections[election];
+
+    // 各縣市第一名勝選政黨版圖
+    metrics.push({
+      key: `${election}.winner`,
+      label: `${label}・第一名勝選政黨版圖`,
+      unit: '%',
+      category,
+      subcategory: label,
+      kind: 'rate',
+      election,
+      field: 'winner',
+      value: (c) => of(c).candidates[0]?.pct ?? null,
+      partyOf: (c) => of(c).candidates[0]?.party ?? null,
+    });
+
     for (const party of PARTIES) {
       if (!data.items.some((c) => partyVotes(of(c), party))) continue;
       const short = partyStyle(party).short;
       metrics.push(
-        { key: `${election}.${party}.votes`, label: `${label}・${short}得票數`, unit: '票', category, election, field: `${party}.votes`, value: (c) => partyVotes(of(c), party)?.votes ?? null },
-        { key: `${election}.${party}.pct`, label: `${label}・${short}得票率`, unit: '%', category, election, field: `${party}.pct`, value: (c) => partyVotes(of(c), party)?.pct ?? null,
+        { key: `${election}.${party}.votes`, label: `${label}・${short}得票數`, unit: '票', category, subcategory: label, kind: 'count', election, field: `${party}.votes`, value: (c) => partyVotes(of(c), party)?.votes ?? null },
+        { key: `${election}.${party}.pct`, label: `${label}・${short}得票率`, unit: '%', category, subcategory: label, kind: 'rate', election, field: `${party}.pct`, value: (c) => partyVotes(of(c), party)?.pct ?? null,
           national: { label: '全國', value: (items) => ratio(sumBy(items, (c) => partyVotes(of(c), party)?.votes ?? 0), sumBy(items, (c) => of(c).valid)) } },
       );
     }
     metrics.push(
-      { key: `${election}.margin`, label: `${label}・第一名領先票數`, unit: '票', category, election, field: 'margin', value: (c) => of(c).margin },
-      { key: `${election}.margin_pct`, label: `${label}・第一名領先幅度`, unit: '百分點', category, election, field: 'margin_pct', value: (c) => of(c).margin_pct },
+      { key: `${election}.margin`, label: `${label}・第一名領先票數`, unit: '票', category, subcategory: label, kind: 'count', election, field: 'margin', value: (c) => of(c).margin },
+      { key: `${election}.margin_pct`, label: `${label}・第一名領先幅度`, unit: '百分點', category, subcategory: label, kind: 'rate', election, field: 'margin_pct', value: (c) => of(c).margin_pct },
     );
     if (data.items.every((c) => of(c).turnout !== null)) {
       // 全國投票率＝各縣市投票數（投票率 × 選舉人數）加總 ÷ 選舉人數加總
-      metrics.push({ key: `${election}.turnout`, label: `${label}・投票率`, unit: '%', category, election, field: 'turnout', value: (c) => of(c).turnout,
+      metrics.push({ key: `${election}.turnout`, label: `${label}・投票率`, unit: '%', category, subcategory: label, kind: 'rate', election, field: 'turnout', value: (c) => of(c).turnout,
         national: { label: '全國', value: (items) => ratio(sumBy(items, (c) => ((of(c).turnout ?? 0) * (of(c).electorate ?? 0)) / 100), sumBy(items, (c) => of(c).electorate ?? 0)) } });
     }
   }
@@ -303,8 +372,45 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
         <h2>{county.county}</h2>
         <button type="button" onClick={onShowTowns}>看鄉鎮市區地圖</button>
       </div>
-      {/* 獨立站沒有「議員」那一頁，所以席次直接攤在這裡（只有六都有資料） */}
-      {elections && councilCounties.includes(county.county) ? <CouncilSeats county={county.county} /> : null}
+
+      {elections ? (
+        <>
+          {/* 首長視角第一優先：縣市長大選得票與勝負 */}
+          <ElectionTable
+            title={`${e.mayor_2022.label}（${county.county === '嘉義市' ? '2022-12-18 延期選舉' : e.mayor_2022.date}）`}
+            current={county.elections.mayor_2022}
+            previous={county.elections.mayor_2018}
+            previousLabel={e.mayor_2018.label}
+          />
+          {/* 總統大選在地版圖 */}
+          <ElectionTable
+            title={`${e.president_2024.label}（${e.president_2024.date}）`}
+            current={county.elections.president_2024}
+            previous={county.elections.president_2020}
+            previousLabel={e.president_2020.label}
+          />
+          {/* 六都議會席次 */}
+          {councilCounties.includes(county.county) ? <CouncilSeats county={county.county} /> : null}
+          {/* 區域立委民意代表 */}
+          <div className="county-legislators">
+            <h3>區域立委</h3>
+            {county.legislators.length ? (
+              county.legislators.map((l) => (
+                <span key={l.id} className="county-legislator">
+                  <button type="button" className="name-button" onClick={() => onOpenId(l.id)}>
+                    {l.name}
+                  </button>
+                  <PartyTag party={l.party} />
+                  <small className="muted">{l.area_name}</small>
+                </span>
+              ))
+            ) : (
+              <span className="muted">尚無資料</span>
+            )}
+          </div>
+        </>
+      ) : null}
+
       <div className="stat-row">
         <div className="stat-tile">
           <b className="stat-value">{num(county.population)}</b>
@@ -323,7 +429,8 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
           <span className="stat-label"><Tip text={noteText('density')}>人口密度</Tip>（人／平方公里；面積 {num(county.area_km2, 2)} 平方公里）</span>
         </div>
       </div>
-      {topicMetrics.length ? (
+
+      {!elections && topicMetrics.length ? (
         <table className="county-table">
           <tbody>
             {topicMetrics.map((m) => (
@@ -335,44 +442,48 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
           </tbody>
         </table>
       ) : null}
-      {elections ? (
-      <>
-      <div className="county-legislators">
-        <h3>區域立委</h3>
-        {county.legislators.length ? (
-          county.legislators.map((l) => (
-            <span key={l.id} className="county-legislator">
-              <button type="button" className="name-button" onClick={() => onOpenId(l.id)}>
-                {l.name}
-              </button>
-              <PartyTag party={l.party} />
-              <small className="muted">{l.area_name}</small>
-            </span>
-          ))
-        ) : (
-          <span className="muted">尚無資料</span>
-        )}
-      </div>
-      <ElectionTable
-        title={`${e.president_2024.label}（${e.president_2024.date}）`}
-        current={county.elections.president_2024}
-        previous={county.elections.president_2020}
-        previousLabel={e.president_2020.label}
-      />
-      <ElectionTable
-        title={`${e.mayor_2022.label}（${county.county === '嘉義市' ? '2022-12-18 延期選舉' : e.mayor_2022.date}）`}
-        current={county.elections.mayor_2022}
-        previous={county.elections.mayor_2018}
-        previousLabel={e.mayor_2018.label}
-      />
-      </>
-      ) : null}
     </section>
   );
 }
 
 /* ---------- 數據總覽、排行榜 ---------- */
 
+/**
+ * 全國視角下互動地圖右側的面板：以前沒選縣市時會偷偷顯示臺北市，現在明講是全國，
+ * 並列出最高、最低各 5 個縣市（點了切換視角）。
+ */
+function NationalDetail({ metric, items, format, onSelect }: { metric: Metric; items: CountyItem[]; format: (v: number | null) => string; onSelect: (county: string) => void }) {
+  const rows = valuesOf(metric, items).sort((a, b) => b.v - a.v);
+  const list = (title: string, part: { county: string; v: number }[]) => (
+    <div className="national-extremes">
+      <h3>{title}</h3>
+      <ol className="overview-town-list">
+        {part.map((r) => (
+          <li key={r.county}>
+            <button type="button" className="link-button" onClick={() => onSelect(r.county)}>{r.county}</button>
+            <span className="muted">{format(r.v)}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+  return (
+    <section className="panel county-detail" aria-label="全國">
+      <div className="county-detail-head">
+        <h2>全國・{metric.short ?? metric.label}</h2>
+      </div>
+      <p className="muted">點地圖上的縣市，或從上方「視角」選縣市，可以看該縣市的明細。</p>
+      {rows.length ? (
+        <div className="national-extremes-grid">
+          {list('最高 5 個縣市', rows.slice(0, 5))}
+          {list('最低 5 個縣市', rows.slice(-5).reverse())}
+        </div>
+      ) : (
+        <p className="muted">這個指標沒有資料。</p>
+      )}
+    </section>
+  );
+}
 /** 時間差異：比較指標本身的說明＋差異、變化率怎麼算 */
 function CompareNote({ metricKey }: { metricKey: string }) {
   const note = noteFor(metricKey);
@@ -404,27 +515,153 @@ function MetricNote({ metricKey }: { metricKey: string }) {
   );
 }
 
-function MetricSelect({ label, options, value, onChange }: { label: string; options: { key: string; label: string; category?: string }[]; value: string; onChange: (key: string) => void }) {
+function MetricSelect({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { key: string; label: string; category?: string; subcategory?: string }[];
+  value: string;
+  onChange: (key: string) => void;
+}) {
   const option = (m: { key: string; label: string }) => (
     <option key={m.key} value={m.key} title={noteText(m.key)}>
       {m.label}
     </option>
   );
-  // 跨好幾個主題的清單（第二個分析指標）用 optgroup 分組，不然一長串找不到
-  const groups = [...new Set(options.map((m) => m.category ?? ''))];
+
+  // 若同一 category 下有 subcategory，則優先用 subcategory 分組；否則若跨 category 則用 category 分組
+  const distinctCats = [...new Set(options.map((m) => m.category).filter(Boolean))];
+  const distinctSubcats = [...new Set(options.map((m) => m.subcategory).filter(Boolean))];
+  const useSubgroups = distinctSubcats.length > 1;
+  const useCatGroups = distinctCats.length > 1;
+
   return (
     <label className="stat-control">
       <span>{label}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)}>
-        {groups.length > 1
-          ? groups.map((g) => (
-              <optgroup key={g} label={g}>
-                {options.filter((m) => (m.category ?? '') === g).map(option)}
-              </optgroup>
-            ))
-          : options.map(option)}
+        {useSubgroups ? (
+          distinctSubcats.map((g) => (
+            <optgroup key={g} label={g!}>
+              {options.filter((m) => m.subcategory === g).map(option)}
+            </optgroup>
+          ))
+        ) : useCatGroups ? (
+          distinctCats.map((g) => (
+            <optgroup key={g} label={g!}>
+              {options.filter((m) => m.category === g).map(option)}
+            </optgroup>
+          ))
+        ) : (
+          options.map(option)
+        )}
       </select>
     </label>
+  );
+}
+
+/**
+ * 選舉指標連動控制組：
+ * 以前是 32 項平鋪（4 場選舉 × 3 黨 × 票數/得票率 + 第一名/領先/投票率），非常難找；
+ * 現在拆解為「場次 ▾」、「對象 ▾」、「型態（得票率／票數）▾」三連動。
+ */
+function ElectionMetricControls({
+  data,
+  currentKey,
+  onChange,
+}: {
+  data: CountiesResponse;
+  currentKey: string;
+  onChange: (key: string) => void;
+}) {
+  // 解析目前指標 key：如 president_2024.民主進步黨.pct、president_2024.turnout、president_2024.margin_pct
+  const parts = currentKey.split('.');
+  const activeElection: CountyElectionKey =
+    ELECTIONS.find((e) => parts[0] === e) ?? 'president_2024';
+
+  let activeTarget = '民主進步黨';
+  let activeMeasure: 'pct' | 'votes' = 'pct';
+
+  if (parts.length >= 3) {
+    activeTarget = parts[1];
+    activeMeasure = parts[2] === 'votes' ? 'votes' : 'pct';
+  } else if (parts[1]?.startsWith('margin')) {
+    activeTarget = 'margin';
+    activeMeasure = parts[1] === 'margin' ? 'votes' : 'pct';
+  } else if (parts[1] === 'turnout') {
+    activeTarget = 'turnout';
+    activeMeasure = 'pct';
+  } else if (parts[1] === 'winner') {
+    activeTarget = 'winner';
+    activeMeasure = 'pct';
+  }
+
+  const setParams = (nextElection: CountyElectionKey, nextTarget: string, nextMeasure: 'pct' | 'votes') => {
+    if (nextTarget === 'winner') {
+      onChange(`${nextElection}.winner`);
+    } else if (nextTarget === 'turnout') {
+      onChange(`${nextElection}.turnout`);
+    } else if (nextTarget === 'margin') {
+      onChange(nextMeasure === 'votes' ? `${nextElection}.margin` : `${nextElection}.margin_pct`);
+    } else {
+      onChange(`${nextElection}.${nextTarget}.${nextMeasure}`);
+    }
+  };
+
+  return (
+    <>
+      <label className="stat-control">
+        <span>選舉場次</span>
+        <select
+          value={activeElection}
+          onChange={(e) => setParams(e.target.value as CountyElectionKey, activeTarget, activeMeasure)}
+        >
+          {ELECTIONS.map((el) => (
+            <option key={el} value={el}>
+              {data.elections[el]?.label ?? el}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="stat-control">
+        <span>政黨／項目</span>
+        <select
+          value={activeTarget}
+          onChange={(e) => setParams(activeElection, e.target.value, activeMeasure)}
+        >
+          <optgroup label="政治版圖">
+            <option value="winner">第一名勝選政黨版圖</option>
+          </optgroup>
+          <optgroup label="主要政黨">
+            {PARTIES.map((p) => (
+              <option key={p} value={p}>
+                {partyStyle(p).short}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="勝負與投票">
+            <option value="margin">第一名領先</option>
+            <option value="turnout">投票率</option>
+          </optgroup>
+        </select>
+      </label>
+
+      {activeTarget !== 'turnout' && activeTarget !== 'winner' ? (
+        <label className="stat-control">
+          <span>數據形式</span>
+          <select
+            value={activeMeasure}
+            onChange={(e) => setParams(activeElection, activeTarget, e.target.value as 'pct' | 'votes')}
+          >
+            <option value="pct">{activeTarget === 'margin' ? '領先幅度（百分點）' : '得票率（%）'}</option>
+            <option value="votes">{activeTarget === 'margin' ? '領先票數（票）' : '得票數（票）'}</option>
+          </select>
+        </label>
+      ) : null}
+    </>
   );
 }
 
@@ -489,7 +726,7 @@ function Ranking({ metric, items, top, onSelect }: { metric: Metric; items: Coun
  * 雙指標對比、時間差異（變化率）、排行榜、原始資料與 CSV 匯出；點縣市可看選舉細節與區域立委。
  * 人口與選舉是靜態資料（scripts/build-county-stats.mjs），立委名單來自同步資料。
  */
-export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPageProps) {
+export function CountiesPage({ refreshToken, scope, onScopeChange, onOpenId, onNavigate }: CountiesPageProps) {
   const res = useApi<CountiesResponse>(buildUrl('/counties'), { refreshToken });
   // 有建置議員頁的縣市（連到議員頁用）
   const [metricKey, setMetricKey] = useParam<string>('metric', 'population');
@@ -501,9 +738,9 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
   const [top, setTop] = useParam<string>('top', '10', TOP_N);
   // 一進來是全國總覽
   const [tabParam, setTab] = useParam<Tab>('tab', 'overview', TABS.map((x) => x.key));
-  // 縣市總覽的範圍：「全國」或縣市名（跟互動地圖選的縣市分開記，預設全國）
-  const [area, setArea] = useParam<string>('area', '全國');
-  const [selected, setSelected] = useParam<string>('county', '臺北市');
+  const [kindFilter, setKindFilter] = useState<'all' | 'rate' | 'count'>('all');
+  // 縣市狀態只有一份：header 的視角（scope）。點地圖、排行、總覽裡的縣市名稱都是切換視角
+  const setSelected = onScopeChange;
 
   // 醫療、房價、農地：沒有這個檔就只是少幾個指標，不擋整頁
   const stats = useApi<CountyStatsResponse>(buildUrl('/county-stats'), { refreshToken });
@@ -540,12 +777,14 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
   const metric2 = metrics.find((m) => m.key === metric2Key) ?? metrics[1];
   const pair = pairs.find((p) => p.key === pairKey) ?? pairs[0];
   // 查不到就明講，不要靜默換成第一個縣市（原住民／不分區的 region 不是縣市名，會走到這裡）
-  const current = resolveCounty(items, selected);
-  if (!current) {
+  // 全國視角：current 為 null，各分頁自己決定怎麼呈現全國（不再偷偷預設臺北市）
+  const current = scope === NATIONAL ? null : resolveCounty(items, scope);
+  if (scope !== NATIONAL && !current) {
     return (
-      <EmptyState message={`找不到縣市「${selected}」`} hint="網址上的 ?county= 可能不是縣市名稱（不分區與原住民沒有縣市頁）。" />
+      <EmptyState message={`找不到縣市「${scope}」`} hint="網址上的 ?county= 可能不是縣市名稱（不分區與原住民沒有縣市頁）。可以從上方「視角」重新選擇。" />
     );
   }
+  const focus = current?.county ?? null;
   // 沒有任何可對比的兩場選舉時，後面的 pair.older.value 會 TypeError（不只「時間差異」分頁）
   if (!pair && (tab === 'dual' || tab === 'compare' || tab === 'trend')) {
     return <EmptyState message="目前沒有可對比的兩場選舉" hint="需要同一類選舉至少兩屆的資料。" />;
@@ -597,21 +836,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
       ) : null}
       {topic === '自訂' && !topicMetrics.length ? null : (
       <>
-      {/* 縣市總覽自己有縣市選單、看的是挑過的跨主題指標：上面的指標選單與全國方塊不需要 */}
-      {tab === 'overview' ? null : (
-      <>
-      <div className="stat-controls">
-        <MetricSelect label="分析指標" options={topicMetrics} value={metric.key} onChange={setMetricKey} />
-        {/* 分頁專用的選單也放在這一列，不要散在分頁按鈕下面 */}
-        {tab === 'dual' ? <MetricSelect label="第二個分析指標" options={metrics} value={metric2.key} onChange={setMetric2Key} /> : null}
-        {tab === 'compare' ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
-        <span className="muted">人口資料：{data.population_month}</span>
-      </div>
-      {tab === 'compare' && pair ? <CompareNote metricKey={pair.newer.key} /> : <MetricNote metricKey={metric.key} />}
-      <Overview metric={metric} items={items} />
-      </>
-      )}
-
+      {/* 分頁列固定緊接在主題下面：以前放在指標選單與全國方塊之後，切到「縣市總覽」時那一塊消失，分頁列會上下跳 */}
       <div className="segmented stat-tabs" role="group" aria-label="分析方式">
         {tabs.map((t) => (
           <button key={t.key} type="button" aria-pressed={tab === t.key} onClick={() => setTab(t.key)}>
@@ -620,18 +845,127 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
         ))}
       </div>
 
+      {/* 縣市總覽看的是挑過的跨主題指標：上面的指標選單與全國方塊不需要 */}
+      {tab === 'overview' ? null : (
+      <>
+      <div className="stat-controls">
+        {topic === '選舉' ? (
+          <ElectionMetricControls data={data} currentKey={metric.key} onChange={setMetricKey} />
+        ) : (
+          <>
+            <MetricSelect
+              label="分析指標"
+              options={
+                kindFilter === 'all'
+                  ? topicMetrics
+                  : topicMetrics.filter((m) => m.kind === kindFilter)
+              }
+              value={metric.key}
+              onChange={setMetricKey}
+            />
+            {topicMetrics.some((m) => m.kind === 'rate') && topicMetrics.some((m) => m.kind === 'count') ? (
+              <div className="segmented" role="group" aria-label="指標型態">
+                <button
+                  type="button"
+                  aria-pressed={kindFilter === 'all'}
+                  onClick={() => setKindFilter('all')}
+                  title="顯示全部指標"
+                >
+                  全部
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={kindFilter === 'rate'}
+                  onClick={() => {
+                    setKindFilter('rate');
+                    if (metric.kind === 'count') {
+                      const firstRate = topicMetrics.find((m) => m.kind === 'rate');
+                      if (firstRate) setMetricKey(firstRate.key);
+                    }
+                  }}
+                  title="優先檢視比率、每萬人等密度指標（更適合面量地圖比較）"
+                >
+                  比率／密度
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={kindFilter === 'count'}
+                  onClick={() => {
+                    setKindFilter('count');
+                    if (metric.kind === 'rate') {
+                      const firstCount = topicMetrics.find((m) => m.kind === 'count');
+                      if (firstCount) setMetricKey(firstCount.key);
+                    }
+                  }}
+                  title="檢視人口數、戶數、學校數等絕對總量"
+                >
+                  總量數值
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
+        {/* 分頁專用的選單也放在這一列，不要散在分頁按鈕下面 */}
+        {tab === 'dual' ? <MetricSelect label="第二個分析指標" options={metrics} value={metric2.key} onChange={setMetric2Key} /> : null}
+        {tab === 'compare' ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
+        <span className="muted">資料期：{data.population_month}</span>
+      </div>
+      {tab === 'compare' && pair ? <CompareNote metricKey={pair.newer.key} /> : <MetricNote metricKey={metric.key} />}
+      <Overview metric={metric} items={items} />
+      </>
+      )}
+
       {tab === 'map' ? (
         <div className="county-layout">
           <section className="panel county-map-panel">
-            <div className="segmented stat-scales" role="group" aria-label="地圖配色">
-              {SCALES.map((s) => (
-                <button key={s.key} type="button" aria-pressed={scale === s.key} onClick={() => setScale(s.key)}>
-                  {s.label}
-                </button>
-              ))}
-            </div>
-            <ChoroplethMap items={items} values={mapValues(metric)} scale={scale} format={formatOf(metric)} title={`${metric.label} - 地理分布圖`} selected={current.county} onSelect={setSelected} />
+            {!metric.partyOf ? (
+              <div className="segmented stat-scales" role="group" aria-label="地圖配色">
+                {SCALES.map((s) => (
+                  <button key={s.key} type="button" aria-pressed={scale === s.key} onClick={() => setScale(s.key)}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <ChoroplethMap
+              items={items}
+              values={mapValues(metric)}
+              scale={scale}
+              format={formatOf(metric)}
+              title={`${metric.label} - 地理分布圖`}
+              selected={focus ?? undefined}
+              onSelect={setSelected}
+              colorOf={
+                metric.partyOf
+                  ? (county) => {
+                      const c = items.find((x) => x.county === county);
+                      const p = c && metric.partyOf ? metric.partyOf(c) : null;
+                      return p ? partyStyle(p).color : null;
+                    }
+                  : undefined
+              }
+              legendItems={
+                metric.partyOf
+                  ? [
+                      { label: '民進黨', color: partyStyle('民主進步黨').color },
+                      { label: '國民黨', color: partyStyle('中國國民黨').color },
+                      { label: '民眾黨', color: partyStyle('台灣民眾黨').color },
+                      { label: '無黨籍', color: partyStyle('無黨籍').color },
+                    ]
+                  : undefined
+              }
+              formatCounty={
+                metric.partyOf
+                  ? (county) => {
+                      const c = items.find((x) => x.county === county);
+                      const cand = c && metric.election ? c.elections[metric.election].candidates[0] : null;
+                      return cand ? `${county}：${cand.party}（${cand.name} ${cand.pct.toFixed(2)}%）` : `${county}：無資料`;
+                    }
+                  : undefined
+              }
+            />
           </section>
+          {current ? (
           <CountyDetail county={current} data={data} councilCounties={council.data?.counties ?? []} elections={metric.category === '選舉'}
             // 人口的基本數字上面已有方塊，表格只列 county-stats.json 的人口結構（男女、學齡、出生死亡、新住民）
             topicMetrics={metric.category === '選舉' ? [] : metrics.filter((m) => m.category === metric.category && (m.category !== '人口' || statKeys.has(m.key)))}
@@ -642,40 +976,43 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
               requestAnimationFrame(() => document.querySelector('.stat-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
             }}
             onOpenId={onOpenId} onNavigate={onNavigate} />
+          ) : (
+            <NationalDetail metric={metric} items={items} format={formatOf(metric)} onSelect={setSelected} />
+          )}
         </div>
       ) : null}
 
       {tab === 'overview' ? (
         <CountyOverview
-          area={area}
+          area={scope}
           items={items}
           metrics={metrics}
           format={(m, v) => fmt(v, m.unit as Unit, (m as Metric).digits)}
           refreshToken={refreshToken}
-          onSelectCounty={(a) => { setArea(a === '全國' ? '' : a); if (a !== '全國') setSelected(a); }}
+          onSelectCounty={setSelected}
         />
       ) : null}
 
-      {tab === 'trend' ? <VoteTrends data={data} selected={current.county} onSelect={setSelected} /> : null}
+      {tab === 'trend' ? <VoteTrends data={data} selected={focus} onSelect={setSelected} /> : null}
 
-      {tab === 'legislators' ? <LegislatorVotes refreshToken={refreshToken} county={current.county} onOpenId={onOpenId} /> : null}
+      {tab === 'legislators' ? <LegislatorVotes refreshToken={refreshToken} county={focus} onOpenId={onOpenId} /> : null}
 
-      {tab === 'towns' ? <TownMap refreshToken={refreshToken} counties={data} county={current.county} onSelectCounty={setSelected} /> : null}
+      {tab === 'towns' ? <TownMap refreshToken={refreshToken} counties={data} county={focus} /> : null}
 
-      {tab === 'population' ? <PopulationTrend refreshToken={refreshToken} counties={data} selected={current.county} onSelect={setSelected} /> : null}
+      {tab === 'population' ? <PopulationTrend refreshToken={refreshToken} counties={data} selected={focus} onSelect={setSelected} /> : null}
 
-      {tab === 'demographics' ? <Demographics refreshToken={refreshToken} county={current.county} /> : null}
+      {tab === 'demographics' ? <Demographics refreshToken={refreshToken} county={focus} /> : null}
 
-      {tab === 'split' ? <SplitTicket refreshToken={refreshToken} county={current.county} /> : null}
+      {tab === 'split' ? <SplitTicket refreshToken={refreshToken} county={focus} /> : null}
 
       {tab === 'dual' ? (
         <>
           <div className="stat-dual">
             <section className="panel">
-              <ChoroplethMap items={items} values={mapValues(metric)} scale="Blues" format={formatOf(metric)} title={metric.label} selected={current.county} onSelect={setSelected} />
+              <ChoroplethMap items={items} values={mapValues(metric)} scale="Blues" format={formatOf(metric)} title={metric.label} selected={focus ?? undefined} onSelect={setSelected} />
             </section>
             <section className="panel">
-              <ChoroplethMap items={items} values={mapValues(metric2)} scale="OrRd" format={formatOf(metric2)} title={metric2.label} selected={current.county} onSelect={setSelected} />
+              <ChoroplethMap items={items} values={mapValues(metric2)} scale="OrRd" format={formatOf(metric2)} title={metric2.label} selected={focus ?? undefined} onSelect={setSelected} />
             </section>
           </div>
         </>
@@ -692,7 +1029,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
                 diverging
                 format={rateFormat}
                 title={`${pair.label} 變化率`}
-                selected={current.county}
+                selected={focus ?? undefined}
                 onSelect={setSelected}
               />
             </section>
@@ -712,7 +1049,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
                     {[...compareRows]
                       .sort((x, y) => (y.rate ?? -Infinity) - (x.rate ?? -Infinity))
                       .map((r) => (
-                        <tr key={r.county} aria-current={r.county === current.county ? 'true' : undefined}>
+                        <tr key={r.county} aria-current={r.county === focus ? 'true' : undefined}>
                           <td>
                             <button type="button" className="link-button" onClick={() => setSelected(r.county)}>
                               {r.county}

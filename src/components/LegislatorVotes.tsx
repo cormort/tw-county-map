@@ -86,9 +86,9 @@ function PersonalVsParty({ items, year, onOpenId }: { items: LegislatorVotesResp
  * 立委得票追蹤：在職委員 2012 起每次參選區域／原住民立委的得票、名次、與對手差距、與自己上一次的增減。
  * 增減方向與上一次相反時標「轉折」。不分區委員若未曾參選區域則沒有紀錄。
  */
-export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshToken: number; county: string; onOpenId: (id: string) => void }) {
+export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshToken: number; county: string | null; onOpenId: (id: string) => void }) {
   const res = useApi<LegislatorVotesResponse>(buildUrl('/legislator-votes'), { refreshToken });
-  const [scope, setScope] = useState<'county' | 'all'>('county');
+  const [scope, setScope] = useState<'county' | 'all'>(county ? 'county' : 'all');
   const [q, setQ] = useState('');
 
   if (res.phase === 'loading' && !res.data) return <LoadingState label="載入立委得票…" />;
@@ -105,9 +105,11 @@ export function LegislatorVotes({ refreshToken, county, onOpenId }: { refreshTok
     <>
       <div className="stat-controls">
         <div className="segmented" role="group" aria-label="範圍">
-          <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
-            {county}
-          </button>
+          {county ? (
+            <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
+              {county}
+            </button>
+          ) : null}
           <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
             {ALL}委員
           </button>

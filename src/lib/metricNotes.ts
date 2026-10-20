@@ -122,6 +122,77 @@ export const COMPARE_NOTES = {
   vsNational: { definition: '比率類跟全國值（沒有全國值時用 22 縣市平均）比；人數、金額這類「量」改看占全國的百分比', meaning: '▲ 高於全國、▼ 低於全國；占全國比例代表這個縣市在全國的份量。' },
 };
 
+export type MetricPolarity = 'higher_better' | 'lower_better' | 'neutral';
+
+/**
+ * 指標好壞極性（首長施政評估視角）：
+ * - 'higher_better'：數值越高通常代表施政成果越好或資源越充裕（如所得、就業率、健保覆蓋率、病床數、自有財源）
+ * - 'lower_better'：數值越低通常越好（如失業率、粗死亡率、每人負債、高齡化速度、房價所得比、國保比例）
+ * - 'neutral'：客觀結構或政治民意數值，無絕對單一方向好壞（如男女比、原住民人口、用電量、政黨得票）
+ */
+export const METRIC_POLARITY: Record<string, MetricPolarity> = {
+  // 人口與動態
+  birth_rate: 'higher_better',
+  births: 'higher_better',
+  pop_growth_rate: 'higher_better',
+  pop_growth: 'higher_better',
+  net_migration_rate: 'higher_better',
+  net_migration: 'higher_better',
+  death_rate: 'lower_better',
+  deaths: 'lower_better',
+  natural_increase: 'higher_better',
+  aging_speed: 'lower_better',
+  old_dependency: 'lower_better',
+  young_dependency: 'neutral',
+  primary_outlook: 'higher_better',
+  elderly_ratio: 'neutral',
+  // 教育
+  schools_kindergarten: 'higher_better',
+  schools_primary: 'neutral',
+  schools_junior: 'neutral',
+  schools_senior: 'neutral',
+  schools_college: 'neutral',
+  pupils_per_primary_school: 'neutral',
+  // 醫療與長照
+  institutions_per10k: 'higher_better',
+  beds_per10k: 'higher_better',
+  physicians_per10k: 'higher_better',
+  doctors_all_per10k: 'higher_better',
+  ltc_per1000_elderly: 'higher_better',
+  ltc_points: 'higher_better',
+  nhi_coverage: 'higher_better',
+  // 經濟與住居
+  income: 'higher_better',
+  unemployment: 'lower_better',
+  house_price: 'neutral',
+  price_to_income: 'lower_better',
+  house_deals_per10k: 'neutral',
+  // 產業與就業
+  companies_per1000: 'higher_better',
+  businesses_per1000: 'higher_better',
+  factories_per10k: 'neutral',
+  labor_insured_per1000: 'higher_better',
+  national_pension_ratio: 'lower_better',
+  // 能源
+  elec_total: 'neutral',
+  elec_per_capita: 'neutral',
+  elec_residential_per_capita: 'neutral',
+  elec_industry_share: 'neutral',
+  elec_growth: 'neutral',
+  // 財政
+  own_revenue_ratio: 'higher_better',
+  expenditure_per_capita: 'neutral',
+  debt_per_capita: 'lower_better',
+  debt: 'lower_better',
+  // 農業
+  farmland: 'neutral',
+  farmland_ratio: 'neutral',
+};
+
+export function polarityOf(key: string): MetricPolarity {
+  return METRIC_POLARITY[key] ?? 'neutral';
+}
+
 export function noteFor(key: string): { definition: string; meaning: string } | undefined {
   return METRIC_NOTES[key] ?? (key.includes('.') ? ELECTION_NOTES[key.split('.').at(-1)!] : undefined);
 }

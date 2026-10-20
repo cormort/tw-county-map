@@ -1,10 +1,11 @@
+import { useState, useMemo } from 'react';
 import { buildUrl } from '../api/client';
 import type { CountyItem, CountyTrendsResponse, DemographicsResponse, PopulationTrendResponse } from '../api/types';
 import { useApi } from '../hooks/useApi';
-import { COMPARE_NOTES, noteFor } from '../lib/metricNotes';
+import { COMPARE_NOTES, noteFor, polarityOf } from '../lib/metricNotes';
 import { Tip, noteText } from './Tip';
 import { partyStyle } from '../lib/parties';
-import { CountyOptions } from './CountyOptions';
+import { CountyOptions, REGIONS, SIX_METROS } from './CountyOptions';
 
 /** 縣市總覽要用到的指標欄位（CountiesPage 的 Metric 的子集，避免循環 import） */
 export interface OverviewMetric {
@@ -110,31 +111,134 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
     );
   };
 
+  const [benchmark, setBenchmark] = useState<'national' | 'tier' | 'region'>('national');
+
+  // 計算縣市首長專屬「強弱項成績單」（依極性與排名百分比評估）
+  const scorecard = useMemo(() => {
+    if (!county) return null;
+    const scored: {
+      metric: OverviewMetric;
+      rank: number;
+      total: number;
+      percentile: number;
+      isStrength: boolean;
+      polarity: 'higher_better' | 'lower_better';
+      diff: number | null;
+      value: number;
+    }[] = [];
+
+    for (const g of GROUPS) {
+      for (const k of g.keys) {
+        const m = metrics.find((x) => x.key === k);
+        if (!m) continue;
+        const pol = polarityOf(m.key);
+        if (pol === 'neutral') continue;
+        const v = m.value(county);
+        if (v === null) continue;
+
+        // 計算全國排名
+        const allVals = items.map((c) => m.value(c)).filter((x): x is number => x !== null).sort((a, b) => b - a);
+        const rank = allVals.indexOf(v) + 1;
+        const total = allVals.length;
+        if (total < 5) continue;
+
+        const natVal = m.national?.value(items) ?? (allVals.reduce((s, x) => s + x, 0) / allVals.length);
+        const diff = v - natVal;
+
+        // 好壞方向：higher_better 前段班（rank 小）是優勢；lower_better 後段班（rank 大、數值小）是優勢
+        const score = pol === 'higher_better' ? (total - rank + 1) / total : rank / total;
+        const isStrength = score >= 0.65;
+        const isWeakness = score <= 0.35;
+
+        if (isStrength || isWeakness) {
+          scored.push({
+            metric: m,
+            rank,
+            total,
+            percentile: Math.round(score * 100),
+            isStrength,
+            polarity: pol,
+            diff,
+            value: v,
+          });
+        }
+      }
+    }
+
+    const strengths = scored.filter((s) => s.isStrength).sort((a, b) => b.percentile - a.percentile).slice(0, 5);
+    const weaknesses = scored.filter((s) => !s.isStrength).sort((a, b) => a.percentile - b.percentile).slice(0, 5);
+    return { strengths, weaknesses };
+  }, [county, items, metrics]);
+
+  // 同組縣市群組（比較基準）
+  const comparisonItems = useMemo((): CountyItem[] => {
+    if (!county || benchmark === 'national') return items;
+    if (benchmark === 'tier') {
+      const isSixMajor = SIX_METROS.includes(county.county);
+      return items.filter((c) => SIX_METROS.includes(c.county) === isSixMajor);
+    }
+    if (benchmark === 'region') {
+      const r = REGIONS.find((reg) => reg.counties.includes(county.county));
+      return r ? items.filter((c) => r.counties.includes(c.county)) : items;
+    }
+    return items;
+  }, [county, benchmark, items]);
+
+  const benchmarkLabel = benchmark === 'tier' ? (SIX_METROS.includes(county?.county ?? '') ? '六都' : '非六都縣市') : benchmark === 'region' ? (REGIONS.find((r) => r.counties.includes(county?.county ?? ''))?.name ?? '同區域') : '全國';
+
   const card = (m: OverviewMetric) => {
     if (!county) return nationalCard(m);
     const v = m.value(county);
-    const ranked = items.map((c) => m.value(c)).filter((x): x is number => x !== null).sort((a, b) => b - a);
+    const pol = polarityOf(m.key);
+    const ranked: number[] = comparisonItems.map((c) => m.value(c)).filter((x): x is number => x !== null).sort((a, b) => b - a);
     const rank = v === null ? null : ranked.indexOf(v) + 1;
-    // 比較基準：有全國值用全國值；比率類用縣市平均；人數、金額這種「量」改說占全國幾 %
-    const nationalValue = m.national?.value(items) ?? (RATE_UNIT.test(m.unit) ? ranked.reduce((s, x) => s + x, 0) / ranked.length : null);
-    const totalSum = ranked.reduce((s, x) => s + x, 0);
+
+    // 比較基準：有全國值且在全國模式時優先用全國值；比率類用平均；數量用占比例
+    const natVal = benchmark === 'national' ? (m.national?.value(items) ?? null) : null;
+    const baseValue: number | null = natVal !== null
+      ? natVal
+      : (RATE_UNIT.test(m.unit) && ranked.length > 0
+        ? ranked.reduce((s: number, x: number) => s + x, 0) / ranked.length
+        : null);
+
+    const totalSum = ranked.reduce((s: number, x: number) => s + x, 0);
     const compare = v === null
       ? null
-      : nationalValue !== null
-        ? { text: `${m.national ? '全國' : '縣市平均'} ${format(m, nationalValue)}`, diff: v - nationalValue }
-        : { text: `占全國 ${((v / totalSum) * 100).toFixed(1)}%`, diff: null };
+      : baseValue !== null
+        ? { text: `${benchmarkLabel}${m.national && benchmark === 'national' ? '' : '平均'} ${format(m, baseValue)}`, diff: v - baseValue }
+        : { text: `占${benchmarkLabel} ${((v / (totalSum || 1)) * 100).toFixed(1)}%`, diff: null };
     const series = seriesOf(m.key);
     const note = noteFor(m.key);
+
+    // 根據 polarity 判斷好/壞或中性
+    let statusClass = '';
+    if (compare?.diff !== null && compare?.diff !== undefined && compare.diff !== 0 && pol !== 'neutral') {
+      const isGood = (pol === 'higher_better' && compare.diff > 0) || (pol === 'lower_better' && compare.diff < 0);
+      statusClass = isGood ? 'overview-status-good' : 'overview-status-bad';
+    }
+
     return (
-      <div key={m.key} className="overview-card">
+      <div key={m.key} className={`overview-card ${statusClass}`}>
         <span className="overview-label"><Tip text={noteText(m.key)}>{m.short ?? m.label}</Tip></span>
         <b className="overview-value">{format(m, v)}</b>
         <span className="overview-meta">
-          {rank ? <span className="overview-rank"><Tip text={`${COMPARE_NOTES.rank.definition}。${COMPARE_NOTES.rank.meaning}`}>全國第 {rank} 高／{ranked.length}</Tip></span> : <span className="muted">無資料</span>}
+          {rank ? (
+            <span className="overview-rank">
+              <Tip text={`${COMPARE_NOTES.rank.definition}。${COMPARE_NOTES.rank.meaning}`}>
+                {benchmarkLabel}第 {rank} 高／{ranked.length}
+              </Tip>
+            </span>
+          ) : (
+            <span className="muted">無資料</span>
+          )}
           {compare ? (
             <span className="muted">
               <Tip text={`${COMPARE_NOTES.vsNational.definition}。${COMPARE_NOTES.vsNational.meaning}`}>{compare.text}</Tip>
-              {compare.diff !== null && compare.diff !== 0 ? <span className={compare.diff > 0 ? 'overview-up' : 'overview-down'}>{compare.diff > 0 ? ' ▲' : ' ▼'}</span> : null}
+              {compare.diff !== null && compare.diff !== 0 ? (
+                <span className={compare.diff > 0 ? 'overview-up' : 'overview-down'}>
+                  {compare.diff > 0 ? ' ▲' : ' ▼'}
+                </span>
+              ) : null}
             </span>
           ) : null}
         </span>
@@ -177,17 +281,51 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
     return t && fromYear && toYear && t.population[fromYear] ? ((t.population[toYear] - t.population[fromYear]) / t.population[fromYear]) * 100 : null;
   };
 
+  // 全國視角：五大分區（北部、中部、南部、東部、外島）彙整對照
+  const regionalSummary = useMemo(() => {
+    if (county) return null;
+    const totalPop = items.reduce((s, c) => s + c.population, 0);
+    return REGIONS.map((r) => {
+      const cItems = items.filter((c) => r.counties.includes(c.county));
+      const pop = cItems.reduce((s, c) => s + c.population, 0);
+      const popPct = totalPop > 0 ? (pop / totalPop) * 100 : 0;
+
+      const getAvg = (key: string): number | null => {
+        const m = metrics.find((x) => x.key === key);
+        if (!m) return null;
+        const vals = cItems.map((c) => m.value(c)).filter((x): x is number => x !== null);
+        return vals.length ? vals.reduce((s, x) => s + x, 0) / vals.length : null;
+      };
+
+      const income = getAvg('income');
+      const elderly = getAvg('elderly_ratio');
+      const beds = getAvg('beds_per10k');
+      const ownRevenue = getAvg('own_revenue_ratio');
+
+      return {
+        name: r.name,
+        counties: cItems.map((c) => c.county),
+        pop,
+        popPct,
+        income,
+        elderly,
+        beds,
+        ownRevenue,
+      };
+    });
+  }, [county, items, metrics]);
+
   return (
     <section className="county-overview" aria-label={`${area}總覽`}>
-      <div className="stat-controls">
-        <label className="stat-control">
-          <span>範圍</span>
-          <select value={county ? county.county : '全國'} onChange={(event) => onSelectCounty(event.target.value)}>
-            <option value="全國">全國</option>
-            <CountyOptions counties={items.map((c) => c.county)} />
-          </select>
-        </label>
-      </div>
+      {county && (
+        <div className="print-only-banner">
+          <h1>中華民國 {county.county} 施政重點成績單與治理概況</h1>
+          <p>
+            首長：{county.elections.mayor_2022.candidates[0]?.name ?? '—'}（{county.elections.mayor_2022.candidates[0]?.party}）｜ 2022 當選得票率：{county.elections.mayor_2022.candidates[0]?.pct.toFixed(2)}% ｜ 資料期：113–114 年最新公務統計
+          </p>
+        </div>
+      )}
+
       <details className="metric-note overview-howto">
         <summary>怎麼看這些卡片？</summary>
         {county ? (
@@ -201,6 +339,226 @@ export function CountyOverview({ area, items, metrics, format, refreshToken, onS
         <p><b>趨勢線</b>　近幾年同一個指標的走勢，滑過可以看每年的數字；只畫形狀，不同卡片之間的高低不能直接比。</p>
         <p><b>這是什麼？</b>　展開可以看每個指標怎麼算、代表什麼意思。</p>
       </details>
+
+      {!county && (
+        <>
+          <section className="panel national-macro-panel">
+            <div className="national-macro-header">
+              <h2>🇹🇼 中華民國全國治理宏觀指標</h2>
+              <span className="muted">全國 22 縣市綜合數據彙整（總統與中央內閣視角）</span>
+            </div>
+            <div className="national-macro-grid">
+              <div className="national-macro-card">
+                <span className="macro-label">總人口數</span>
+                <b className="macro-val">{items.reduce((s, c) => s + c.population, 0).toLocaleString('zh-TW')} 人</b>
+                <span className="macro-sub muted">戶數：{items.reduce((s, c) => s + c.households, 0).toLocaleString('zh-TW')} 戶</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">65歲以上高齡人口比</span>
+                <b className="macro-val">{((items.reduce((s, c) => s + c.elderly, 0) / (items.reduce((s, c) => s + c.population, 0) || 1)) * 100).toFixed(2)}%</b>
+                <span className="macro-sub muted">邁入超高齡社會門檻</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">年度出生人口數</span>
+                <b className="macro-val">{(() => {
+                  const m = byKey.get('births');
+                  const v = m ? nationalOf(m).v : null;
+                  return v !== null ? `${v.toLocaleString('zh-TW')} 人` : '—';
+                })()}</b>
+                <span className="macro-sub muted">少子化核心國安課題</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">平均每戶可支配所得</span>
+                <b className="macro-val">{(() => {
+                  const m = byKey.get('income');
+                  const v = m ? nationalOf(m).v : null;
+                  return v !== null ? `${Math.round(v).toLocaleString('zh-TW')} 元` : '—';
+                })()}</b>
+                <span className="macro-sub muted">家庭購買力中位水準</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">平均失業率</span>
+                <b className="macro-val">{(() => {
+                  const m = byKey.get('unemployment');
+                  const v = m ? nationalOf(m).v : null;
+                  return v !== null ? `${v.toFixed(2)}%` : '—';
+                })()}</b>
+                <span className="macro-sub muted">就業市場活絡度</span>
+              </div>
+              <div className="national-macro-card">
+                <span className="macro-label">地方自籌財源比率</span>
+                <b className="macro-val">{(() => {
+                  const m = byKey.get('own_revenue_ratio');
+                  const v = m ? nationalOf(m).v : null;
+                  return v !== null ? `${v.toFixed(2)}%` : '—';
+                })()}</b>
+                <span className="macro-sub muted">地方財政自主能力</span>
+              </div>
+            </div>
+          </section>
+
+          {regionalSummary && (
+            <section className="panel regional-disparity-panel">
+              <div className="regional-disparity-header">
+                <h2>🗺️ 國土空間與五大區域平衡對照表</h2>
+                <p className="muted">國發會區域劃分（北部、中部、南部、東部、外島），檢視人口集中度、所得落差與醫療財政資源配置</p>
+              </div>
+              <div className="regional-table-wrapper">
+                <table className="regional-table">
+                  <thead>
+                    <tr>
+                      <th>分區</th>
+                      <th>涵蓋縣市</th>
+                      <th className="num">人口數</th>
+                      <th className="num">人口佔比</th>
+                      <th className="num">平均所得</th>
+                      <th className="num">高齡比率</th>
+                      <th className="num">每萬人病床</th>
+                      <th className="num">自籌財源率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {regionalSummary.map((r) => (
+                      <tr key={r.name}>
+                        <td><b>{r.name}</b></td>
+                        <td>
+                          <div className="regional-counties-chips">
+                            {r.counties.map((cName) => (
+                              <button
+                                key={cName}
+                                type="button"
+                                className="link-button county-chip"
+                                onClick={() => onSelectCounty(cName)}
+                                title={`切換到 ${cName} 總覽`}
+                              >
+                                {cName}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="num">{r.pop.toLocaleString('zh-TW')}</td>
+                        <td className="num"><b>{r.popPct.toFixed(1)}%</b></td>
+                        <td className="num">{r.income !== null ? `${Math.round(r.income).toLocaleString('zh-TW')} 元` : '—'}</td>
+                        <td className="num">{r.elderly !== null ? `${r.elderly.toFixed(1)}%` : '—'}</td>
+                        <td className="num">{r.beds !== null ? `${r.beds.toFixed(1)} 床` : '—'}</td>
+                        <td className="num">{r.ownRevenue !== null ? `${r.ownRevenue.toFixed(1)}%` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      {county && (
+        <div className="panel overview-benchmark-panel">
+          <div className="benchmark-bar">
+            <span className="benchmark-label">📊 比較基準：</span>
+            <div className="button-group">
+              <button
+                type="button"
+                className={`stat-btn ${benchmark === 'national' ? 'active' : ''}`}
+                onClick={() => setBenchmark('national')}
+              >
+                全國（22 縣市）
+              </button>
+              <button
+                type="button"
+                className={`stat-btn ${benchmark === 'tier' ? 'active' : ''}`}
+                onClick={() => setBenchmark('tier')}
+              >
+                同級縣市（{SIX_METROS.includes(county.county) ? '六都' : '非六都 16 縣市'}）
+              </button>
+              <button
+                type="button"
+                className={`stat-btn ${benchmark === 'region' ? 'active' : ''}`}
+                onClick={() => setBenchmark('region')}
+              >
+                同區域（{REGIONS.find((r) => r.counties.includes(county.county))?.name ?? '同區'}）
+              </button>
+            </div>
+            <span className="benchmark-hint muted">
+              下方各指標卡片排位與落差正對標「<b>{benchmarkLabel}</b>」（共 {comparisonItems.length} 縣市）
+            </span>
+          </div>
+        </div>
+      )}
+
+      {county && scorecard && (scorecard.strengths.length > 0 || scorecard.weaknesses.length > 0) && (
+        <section className="panel scorecard-panel">
+          <div className="scorecard-header">
+            <div>
+              <h2>📋 {county.county} 首長治理重點盤點</h2>
+              <p className="muted">
+                依各項治理指標之良窳極性（如所得、病床、自籌財源「愈高愈佳」；失業、負債、老化速度「愈低愈佳」），由全國排位精選出該縣市表現最頂尖與最需關注的關鍵指標。
+              </p>
+            </div>
+            <button
+              type="button"
+              className="print-briefing-btn stat-btn"
+              onClick={() => window.print()}
+              title="列印或另存為 A4 首長簡報 PDF"
+            >
+              🖨️ 列印治理簡報
+            </button>
+          </div>
+          <div className="scorecard-grid">
+            <div className="scorecard-col scorecard-strengths">
+              <h3>🌟 重點優勢（前 {scorecard.strengths.length} 項）</h3>
+              <ul className="scorecard-list">
+                {scorecard.strengths.map((item) => (
+                  <li key={item.metric.key} className="scorecard-item strength">
+                    <div className="scorecard-item-main">
+                      <div className="scorecard-item-title">
+                        <b>{item.metric.short ?? item.metric.label}</b>
+                        <span className="badge badge-good">
+                          全國第 {item.rank} {item.polarity === 'higher_better' ? '高' : '低（負擔輕）'}
+                        </span>
+                      </div>
+                      <div className="scorecard-item-meta">
+                        <span className="scorecard-val">{format(item.metric, item.value)}</span>
+                        {item.diff !== null && (
+                          <span className="muted">
+                            較全國{item.diff > 0 ? '高' : '低'} {Math.abs(item.diff).toFixed(item.metric.unit.includes('%') || item.metric.unit.includes('‰') ? 2 : 1)} {item.metric.unit}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="scorecard-col scorecard-weaknesses">
+              <h3>⚠️ 待關注弱項（前 {scorecard.weaknesses.length} 項）</h3>
+              <ul className="scorecard-list">
+                {scorecard.weaknesses.map((item) => (
+                  <li key={item.metric.key} className="scorecard-item weakness">
+                    <div className="scorecard-item-main">
+                      <div className="scorecard-item-title">
+                        <b>{item.metric.short ?? item.metric.label}</b>
+                        <span className="badge badge-bad">
+                          全國第 {item.rank} {item.polarity === 'higher_better' ? '低' : '高（負擔重）'}
+                        </span>
+                      </div>
+                      <div className="scorecard-item-meta">
+                        <span className="scorecard-val">{format(item.metric, item.value)}</span>
+                        {item.diff !== null && (
+                          <span className="muted">
+                            較全國{item.diff > 0 ? '高' : '低'} {Math.abs(item.diff).toFixed(item.metric.unit.includes('%') || item.metric.unit.includes('‰') ? 2 : 1)} {item.metric.unit}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+      )}
 
       {GROUPS.map((g) => {
         const list = g.keys.map((k) => byKey.get(k)).filter((m): m is OverviewMetric => !!m);

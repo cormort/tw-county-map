@@ -126,12 +126,12 @@ function Scatter({ points, focus, color, xLabel, yLabel, onHover }: { points: Po
  * 人口結構 × 得票：以 368 個鄉鎮市區為單位，看年齡結構（2026-08 人口）與 2020／2024 各黨得票率的關聯。
  * 這是區域層級的相關，不能推論個人投票行為（生態謬誤）；人口時間點晚於選舉。
  */
-export function Demographics({ refreshToken, county }: { refreshToken: number; county: string }) {
+export function Demographics({ refreshToken, county }: { refreshToken: number; county: string | null }) {
   const res = useApi<DemographicsResponse>(buildUrl('/demographics'), { refreshToken });
   const [xKey, setX] = useState<XKey>('elderly_ratio');
   const [election, setElection] = useState<ElectionKey>('party_list_2024');
   const [partyChoice, setParty] = useState('民主進步黨');
-  const [scope, setScope] = useState<'all' | 'county'>('all');
+  const [scope, setScope] = useState<'all' | 'county'>(county ? 'county' : 'all');
   const [hover, setHover] = useState<Point | null>(null);
 
   if (res.phase === 'loading' && !res.data) return <LoadingState label="載入鄉鎮人口與得票…" />;
@@ -201,9 +201,11 @@ export function Demographics({ refreshToken, county }: { refreshToken: number; c
           <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
             全國 368 鄉鎮
           </button>
-          <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
-            {county}
-          </button>
+          {county ? (
+            <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
+              {county}
+            </button>
+          ) : null}
         </div>
       </div>
 
