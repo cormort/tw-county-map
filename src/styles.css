@@ -1239,6 +1239,14 @@ a.stat-tile:hover { border-color: #98a2b3; box-shadow: var(--card-base-hover); t
 .source-count { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- 縣市統計地圖 ---------- */
+.custom-data { margin: var(--space-4) 0 0; }
+.custom-data summary { cursor: pointer; font-weight: 600; }
+.custom-data-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
+.custom-data-row input[type='url'] { flex: 1 1 280px; min-width: 0; }
+.custom-data-proxy { display: block; margin-top: 6px; font-size: var(--fs-sm); }
+.custom-data-file { flex: 1 1 280px; padding: var(--space-4); border: 1px dashed var(--card-line); border-radius: 12px; text-align: center; cursor: pointer; }
+.custom-data-file:focus-within { outline: 2px solid var(--accent); }
+.error-text { color: var(--error); }
 .stat-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); margin: var(--space-4) 0 var(--space-3); }
 .stat-control { display: grid; gap: 4px; font-size: var(--fs-sm); color: var(--muted); }
 .stat-control select { min-width: min(360px, 100%); max-width: 100%; }

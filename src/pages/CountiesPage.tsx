@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { buildUrl } from '../api/client';
 import type { CountiesResponse, CountyElection, CountyElectionKey, CountyItem, CountyStatsResponse, CouncilResponse } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/DataStates';
@@ -12,6 +12,8 @@ import { PopulationTrend } from '../components/PopulationTrend';
 import { TownMap } from '../components/TownMap';
 import { VoteTrends } from '../components/VoteTrends';
 import { CouncilSeats } from '../components/CouncilSeats';
+import { CustomData } from '../components/CustomData';
+import { mergeStats } from '../lib/customData';
 import { colorAt, type ScaleName } from '../lib/colorScales';
 import { downloadCsv } from '../lib/csv';
 import { partyStyle } from '../lib/parties';
@@ -409,7 +411,10 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
 
   // 醫療、房價、農地：沒有這個檔就只是少幾個指標，不擋整頁
   const stats = useApi<CountyStatsResponse>(buildUrl('/county-stats'), { refreshToken });
-  const metrics = useMemo(() => (res.data ? buildMetrics(res.data, stats.data ?? undefined) : []), [res.data, stats.data]);
+  // 使用者手動載入的資料（CustomData），跟 county-stats.json 合併成同一份
+  const [custom, setCustom] = useState<CountyStatsResponse[]>([]);
+  const allStats = useMemo(() => mergeStats([stats.data, ...custom]), [stats.data, custom]);
+  const metrics = useMemo(() => (res.data ? buildMetrics(res.data, allStats) : []), [res.data, allStats]);
   const pairs = useMemo(() => (res.data ? buildPairs(metrics, res.data) : []), [metrics, res.data]);
 
   if (res.phase === 'error') return <ErrorState title="無法取得縣市資料（/api/v1/counties）" error={res.error} onRetry={res.reload} />;
@@ -464,6 +469,12 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
     <>
       <h1 className="sr-only">縣市統計地圖</h1>
 
+      <CustomData
+        counties={items.map((c) => c.county)}
+        loaded={custom.reduce((n, s) => n + s.fields.length, 0)}
+        onLoad={(s) => setCustom((list) => [...list, s])}
+        onClear={() => setCustom([])}
+      />
       <div className="stat-controls">
         <MetricSelect label="主要分析指標" options={metrics} value={metric.key} onChange={setMetricKey} />
         {/* 分頁專用的選單也放在這一列，不要散在分頁按鈕下面 */}
@@ -646,7 +657,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
             </a>
           </span>
         ))}
-        {[...new Map((stats.data?.fields ?? []).map((f) => [f.url, f])).values()].map((f) => (
+        {[...new Map((stats.data?.fields ?? []).filter((f) => f.url).map((f) => [f.url, f])).values()].map((f) => (
           <span key={f.url}>
             、
             <a href={f.url} target="_blank" rel="noreferrer noopener">
