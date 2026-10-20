@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { colorAt, gradient, type ScaleName } from '../lib/colorScales';
 
 /**
@@ -28,7 +28,8 @@ export function ChoroplethMap({
   onSelect,
   viewBox = '0 0 530 735',
   outlines = [],
-  strokeWidth = 0.8,
+  level = 'county',
+  focusOutline,
 }: {
   items: { county: string; path: string }[];
   values: Map<string, number | null>;
@@ -43,7 +44,10 @@ export function ChoroplethMap({
   viewBox?: string;
   /** 疊在上方、不上色的外框（例如鄉鎮圖上的縣市界） */
   outlines?: string[];
-  strokeWidth?: number;
+  /** town：鄉鎮界改淺灰細線，縣市界（outlines）疊深灰粗線 */
+  level?: 'county' | 'town';
+  /** 特別加粗的外框（相鄰縣市模式的主縣市） */
+  focusOutline?: string;
 }) {
   const [hover, setHover] = useState<string | null>(null);
   // 只採計「有限的數字」：undefined（Map 沒有這個鍵、或資料檔少了欄位）與 NaN（除以 0、
@@ -102,7 +106,7 @@ export function ChoroplethMap({
   return (
     <figure className="stat-map">
       <figcaption>{title}</figcaption>
-      <svg viewBox={viewBox} role="group" aria-label={title} style={{ '--map-stroke': strokeWidth } as CSSProperties}>
+      <svg viewBox={viewBox} role="group" aria-label={title} className={level === 'town' ? 'map-town' : undefined}>
         {/* 金門、連江的插圖框 */}
         <rect className="county-inset" x="22" y="4" width="128" height="112" rx="6" />
         <rect className="county-inset" x="3" y="166" width="66" height="54" rx="6" />
@@ -110,6 +114,7 @@ export function ChoroplethMap({
         {outlines.map((d, i) => (
           <path key={i} d={d} className="map-outline" />
         ))}
+        {focusOutline ? <path d={focusOutline} className="map-outline map-outline-focus" /> : null}
         {/* 選取／滑過的外框：SVG 沒有 z-index，區塊自己的描邊會被後面畫的鄰區蓋掉而時有時無，
             所以另外在最上層畫一份不接收滑鼠的外框（白色光暈墊底＋細線） */}
         {overlays}
@@ -119,7 +124,7 @@ export function ChoroplethMap({
       {showNorth ? (
         <div className="stat-map-north">
           <span className="muted">北部放大</span>
-          <svg viewBox={NORTH_VIEWBOX} aria-hidden="true" style={{ '--map-stroke': strokeWidth / 2.5 } as CSSProperties}>
+          <svg viewBox={NORTH_VIEWBOX} aria-hidden="true">
             {shapes(true)}
             {overlays}
             {NORTH_LABELS.map(([name, x, y]) => (

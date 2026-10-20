@@ -22,10 +22,11 @@ export interface OverviewMetric {
  * 分組與指標寫死在這裡（這一頁的重點就是「挑過的」指標，不是全部列出）。
  */
 const GROUPS: { title: string; keys: string[] }[] = [
-  { title: '人口動態', keys: ['population', 'pop_growth_rate', 'net_migration_rate', 'births', 'death_rate', 'elderly_ratio', 'aging_speed', 'old_dependency', 'new_residents_per1000'] },
-  { title: '少子化與教育', keys: ['birth_rate', 'age_preschool', 'age_primary', 'primary_outlook', 'young_dependency'] },
+  { title: '人口動態', keys: ['population', 'pop_growth_rate', 'net_migration_rate', 'births', 'death_rate', 'elderly_ratio', 'aging_speed', 'old_dependency', 'new_residents_per1000', 'indigenous_ratio'] },
+  { title: '少子化與教育', keys: ['birth_rate', 'age_preschool', 'age_primary', 'primary_outlook', 'young_dependency', 'schools_primary', 'pupils_per_primary_school', 'schools_college'] },
   { title: '醫療與長照', keys: ['beds_per10k', 'physicians_per10k', 'ltc_per1000_elderly', 'ltc_points'] },
   { title: '經濟與住居', keys: ['income', 'unemployment', 'house_price', 'price_to_income', 'house_deals_per10k'] },
+  { title: '產業與就業', keys: ['companies_per1000', 'businesses_per1000', 'factories', 'factories_per10k', 'labor_insured_per1000'] },
   { title: '能源', keys: ['elec_total', 'elec_per_capita', 'elec_residential_per_capita', 'elec_industry_share', 'elec_growth'] },
   { title: '財政', keys: ['own_revenue_ratio', 'expenditure_per_capita', 'debt_per_capita'] },
 ];

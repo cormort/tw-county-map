@@ -24,6 +24,32 @@ const METRICS: Record<MetricKey, { label: string; unit: string; scale: ScaleName
 };
 
 /**
+ * 接壤的縣市。由縣市輪廓的共用邊界點算出來再寫死（縣界不會變）；臺北市、嘉義市被鄰縣整個包住、
+ * 輪廓沒有共用點，所以手動補上。離島（澎湖、金門、連江）沒有鄰縣。
+ */
+export const NEIGHBORS: Record<string, string[]> = {
+  基隆市: ['新北市'],
+  臺北市: ['新北市'],
+  新北市: ['臺北市', '基隆市', '桃園市', '宜蘭縣'],
+  桃園市: ['新北市', '新竹縣', '宜蘭縣'],
+  新竹市: ['新竹縣', '苗栗縣'],
+  新竹縣: ['新竹市', '桃園市', '苗栗縣', '臺中市', '宜蘭縣'],
+  苗栗縣: ['新竹市', '新竹縣', '臺中市'],
+  臺中市: ['新竹縣', '苗栗縣', '花蓮縣', '彰化縣', '南投縣', '宜蘭縣'],
+  彰化縣: ['臺中市', '雲林縣', '南投縣'],
+  南投縣: ['臺中市', '彰化縣', '雲林縣', '嘉義縣', '高雄市', '花蓮縣'],
+  雲林縣: ['彰化縣', '南投縣', '嘉義縣'],
+  嘉義市: ['嘉義縣'],
+  嘉義縣: ['嘉義市', '南投縣', '雲林縣', '臺南市', '高雄市'],
+  臺南市: ['嘉義縣', '高雄市'],
+  高雄市: ['南投縣', '嘉義縣', '臺南市', '屏東縣', '花蓮縣', '臺東縣'],
+  屏東縣: ['高雄市', '臺東縣'],
+  宜蘭縣: ['新北市', '桃園市', '新竹縣', '臺中市', '花蓮縣'],
+  花蓮縣: ['臺中市', '南投縣', '宜蘭縣', '高雄市', '臺東縣'],
+  臺東縣: ['屏東縣', '高雄市', '花蓮縣'],
+};
+
+/**
  * 由 path 字串算外框範圍，供「只看某縣市」時放大。
  *
  * 空陣列要回 undefined：沒有點時 x0/y0 仍是 Infinity，產出的 viewBox 是
@@ -69,10 +95,15 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
   const [metric, setMetric] = useState<MetricKey>('elderly_ratio');
   const [election, setElection] = useState<ElectionKey>('party_list_2024');
   const [partyChoice, setParty] = useState('民主進步黨');
-  const [scope, setScope] = useState<'all' | 'county'>('county');
+  const [scope, setScope] = useState<'all' | 'county' | 'neighbors'>('county');
   const [selected, setSelected] = useState<string | undefined>(undefined);
 
-  const countyViewBox = useMemo(() => countyViewBoxFor(counties, county), [counties, county]);
+  // 相鄰縣市：選定縣市＋接壤縣市（看跨縣市的外溢、擴散）；離島沒有鄰縣就只有自己
+  const scopeCounties = useMemo(() => (scope === 'neighbors' ? [county, ...(NEIGHBORS[county] ?? [])] : [county]), [scope, county]);
+  const countyViewBox = useMemo(
+    () => bbox(counties.items.filter((c) => scopeCounties.includes(c.county)).map((c) => c.path)) ?? countyViewBoxFor(counties, county),
+    [counties, county, scopeCounties],
+  );
 
   const failed = [map, demo, trend].find((r) => r.phase === 'error');
   if (failed) return <ErrorState title="無法取得鄉鎮資料" error={failed.error} onRetry={failed.reload} />;
@@ -117,14 +148,15 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
   const digits = meta.unit === '%' ? 2 : metric === 'household_size' ? 2 : 0;
   const format = (v: number | null) => (v === null ? '—' : `${metric === 'change' && v > 0 ? '+' : ''}${v.toLocaleString('zh-TW', { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${meta.unit}`);
 
-  const shown = scope === 'county' ? map.data.towns.filter((t) => t.county === county) : map.data.towns;
+  const shown = scope === 'all' ? map.data.towns : map.data.towns.filter((t) => scopeCounties.includes(t.county));
   const items = shown.map((t) => ({ county: t.county + t.town, path: t.path }));
   const values = new Map(items.map((i) => [i.county, valueOf(i.county)]));
   const ranked = items
     .map((i) => ({ key: i.county, v: values.get(i.county) ?? null }))
     .filter((r): r is { key: string; v: number } => r.v !== null)
     .sort((a, b) => b.v - a.v);
-  const outlines = scope === 'all' ? counties.items.map((c) => c.path) : [];
+  // 縣市界疊在鄉鎮之上（深灰粗線；鄉鎮界是淺灰細線），才分得出哪條是縣市界
+  const outlines = counties.items.filter((c) => scope === 'all' || scopeCounties.includes(c.county)).map((c) => c.path);
 
   return (
     <>
@@ -167,11 +199,14 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
           <button type="button" aria-pressed={scope === 'county'} onClick={() => setScope('county')}>
             {county}
           </button>
+          <button type="button" aria-pressed={scope === 'neighbors'} onClick={() => setScope('neighbors')} disabled={!NEIGHBORS[county]?.length} title={NEIGHBORS[county]?.length ? `${county}＋${NEIGHBORS[county].join('、')}` : '離島沒有相鄰縣市'}>
+            相鄰縣市
+          </button>
           <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
             全國 368 鄉鎮
           </button>
         </div>
-        {scope === 'county' ? (
+        {scope !== 'all' ? (
           <label className="stat-control">
             <span>縣市</span>
             <select value={county} onChange={(event) => onSelectCounty(event.target.value)}>
@@ -188,13 +223,14 @@ export function TownMap({ refreshToken, counties, county, onSelectCounty }: { re
             values={values}
             scale={meta.scale}
             diverging={meta.diverging}
-            title={`${scope === 'county' ? county : '全國'}各鄉鎮市區・${label}`}
+            title={`${scope === 'all' ? '全國' : scope === 'neighbors' ? `${county}與相鄰縣市` : county}各鄉鎮市區・${label}`}
             format={format}
             selected={selected}
             onSelect={setSelected}
-            viewBox={scope === 'county' ? countyViewBox : undefined}
+            viewBox={scope === 'all' ? undefined : countyViewBox}
             outlines={outlines}
-            strokeWidth={scope === 'county' ? 0.5 : 0.25}
+            level="town"
+            focusOutline={scope === 'neighbors' ? counties.items.find((c) => c.county === county)?.path : undefined}
           />
         </section>
         <section className="panel">

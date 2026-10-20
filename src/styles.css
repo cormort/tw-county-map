@@ -20,6 +20,7 @@
   /* 地圖：海面底色與縣市界 */
   --map-sea: #e4eef7;
   --map-border: #5f6b7c;
+  --map-border-soft: #aab3bf;
   --warn: #96570a;
   --warn-bg: #fff8ec;
   --error: #b42318;
@@ -1392,8 +1393,12 @@ th.num .tip:hover::after, th.num .tip:focus-visible::after { left: auto; right: 
 .corr-strong { font-weight: 700; background: var(--accent-soft); }
 .town-change li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 8px; padding: 4px 0; border-bottom: 1px solid var(--rule-soft); font-variant-numeric: tabular-nums; }
 .town-change small { grid-column: 1 / -1; }
-.stat-map svg .county-shape { stroke-width: var(--map-stroke, 0.8); }
-.map-outline { fill: none; stroke: var(--ink); stroke-width: 1; opacity: 0.55; pointer-events: none; }
+/* 界線用固定像素寬（non-scaling-stroke）：放大圖、鄉鎮圖縮放時線不會跟著變粗。
+   參考 tw_statistic_map：鄉鎮界淺灰細線、縣市界另外疊一層深灰粗線，層級一眼分得出來 */
+.stat-map svg .county-shape { stroke-width: 0.8px; vector-effect: non-scaling-stroke; }
+.stat-map svg.map-town .county-shape { stroke: var(--map-border-soft); stroke-width: 0.5px; }
+.map-outline { fill: none; stroke: #374151; stroke-width: 1.4px; vector-effect: non-scaling-stroke; stroke-linejoin: round; pointer-events: none; }
+.map-outline-focus { stroke: var(--ink); stroke-width: 3px; }
 .stat-map svg { -webkit-tap-highlight-color: transparent; }
 /* 選取外框（疊在最上層，見 ChoroplethMap 的 OutlineOverlay）：白色光暈墊底，再壓一條細線；
    non-scaling-stroke 讓粗細以螢幕像素計，縣市圖與放大後的鄉鎮圖看起來一樣 */

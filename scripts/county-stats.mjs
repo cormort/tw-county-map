@@ -12,9 +12,11 @@
  * - 戶政司村里單一年齡人口、出生死亡（kiang/data.moi.gov.tw 轉存），取最新月份與近 12 個月
  * - 移民署外籍與大陸港澳配偶人數（內政部統計查詢網），取最新月份
  * - 衛福部長照 ABC 據點；主計總處所得、失業率；國發會歲入歲出決算；國庫署公共債務；台電縣市別用電
+ * - 商發署公司、商業登記；產發署登記工廠名錄；勞保局投保人數；戶政司原住民人口；教育部各級學校名錄
  * 另寫出 public/data/county-trends.json：所得、失業率、債務、用電量、出生數、老年人口比率的歷年值（縣市總覽的趨勢線）
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { get as httpsGet } from 'node:https';
 import { rootCertificates } from 'node:tls';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -47,11 +49,20 @@ const round = (n, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
 const per10k = (part, pop) => round((part / pop) * 10000, 2);
 
 async function download(url, name) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
-  const path = join(tmp, name);
-  await writeFile(path, Buffer.from(await res.arrayBuffer()));
-  return path;
+  // 政府網站大檔偶爾會下載到一半被斷線（serv.gcis.nat.gov.tw 實測過），重試 3 次
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
+      const path = join(tmp, name);
+      await writeFile(path, Buffer.from(await res.arrayBuffer()));
+      return path;
+    } catch (error) {
+      if (attempt >= 3) throw error;
+      console.warn(`下載失敗，重試（${attempt}）：${url}`);
+      await new Promise((r) => setTimeout(r, 3000 * attempt));
+    }
+  }
 }
 
 /* ---------- 醫療（衛福部年報） ---------- */
@@ -488,6 +499,126 @@ trends.electricity = { label: '總用電量（百萬度）', unit: '百萬度', 
   const months = elecMonths.filter((ym) => ym.startsWith(y));
   return { period: String(Number(y) + 1911), values: Object.fromEntries(COUNTIES.map((c) => [c, Math.round(elecSum(months, c) / 1e6)])) };
 }) };
+
+/* ---------- 產業、就業、原住民、學校 ---------- */
+
+/** data.gov.tw 資料集的最新一份資源（依說明或網址排序取最後；pick 可篩格式） */
+async function latestResource(id, pick = () => true) {
+  const r = (await (await fetch(`https://data.gov.tw/api/v2/rest/dataset/${id}`)).json()).result;
+  const list = r.distribution.filter(pick).sort((a, b) => `${a.resourceDescription}${a.resourceDownloadUrl}`.localeCompare(`${b.resourceDescription}${b.resourceDownloadUrl}`));
+  return list.at(-1);
+}
+/** 切一列 CSV（處理雙引號欄位） */
+const csvLine = (l) => [...l.matchAll(/("([^"]*)"|[^,]*)(,|$)/g)].slice(0, -1).map((m) => m[2] ?? m[1]);
+const normCounty = (name) => name.replace(/^\[\d+\]/, '').replace(/台/g, '臺').trim();
+
+// 公司、商業登記（商工行政資料開放平臺，每月）：縣市列前面有縮排空白
+async function gcisCounts(id) {
+  const res = await latestResource(id, (d) => d.resourceFormat === 'CSV');
+  const rows = (await (await fetch(res.resourceDownloadUrl)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
+  const out = {};
+  for (const r of rows.slice(1)) { const c = normCounty(r[0]); if (items[c]) out[c] = { count: Number(r[1]), capital: Number(r[2]) }; }
+  return { period: res.resourceDescription.replace(/年|月/g, (m) => (m === '年' ? '-' : '')), out };
+}
+const company = await gcisCounts(9346);
+const business = await gcisCounts(25346);
+const gcisMeta = (p) => ({ category: '產業', period: p, source: '經濟部商業發展署（商工行政資料開放平臺）', url: 'https://data.gcis.nat.gov.tw/' });
+fields.push(
+  { key: 'companies', label: '公司家數', unit: '家', ...gcisMeta(company.period), url: 'https://data.gov.tw/dataset/9346' },
+  { key: 'companies_per1000', label: '每千人公司家數', unit: '家／千人', digits: 1, ...gcisMeta(company.period), url: 'https://data.gov.tw/dataset/9346', national: perMille(sumAll((c) => company.out[c]?.count ?? 0), allTotal) },
+  { key: 'company_capital', label: '公司實收資本額', unit: '百萬元', ...gcisMeta(company.period), url: 'https://data.gov.tw/dataset/9346' },
+  { key: 'businesses', label: '商業登記（行號）家數', unit: '家', ...gcisMeta(business.period), url: 'https://data.gov.tw/dataset/25346' },
+  { key: 'businesses_per1000', label: '每千人商業登記家數', unit: '家／千人', digits: 1, ...gcisMeta(business.period), url: 'https://data.gov.tw/dataset/25346', national: perMille(sumAll((c) => business.out[c]?.count ?? 0), allTotal) },
+);
+for (const c of COUNTIES) {
+  items[c].companies = company.out[c]?.count ?? null;
+  items[c].companies_per1000 = company.out[c] ? perMille(company.out[c].count, total(c)) : null;
+  items[c].company_capital = company.out[c] ? Math.round(company.out[c].capital) : null;
+  items[c].businesses = business.out[c]?.count ?? null;
+  items[c].businesses_per1000 = business.out[c] ? perMille(business.out[c].count, total(c)) : null;
+}
+
+// 生產中工廠（產業發展署登記工廠名錄；索引 CSV 指向每月更新的 zip）
+const factoryIndex = (await (await fetch('https://www.ida.gov.tw/opendata/02/SDD6569.csv')).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
+const factoryZip = await download(factoryIndex.at(-1).at(-1), 'factory.zip');
+const factoryEntry = execFileSync('unzip', ['-Z1', factoryZip]).toString().trim().split('\n')[0]; // 例如 11509.csv
+const factories = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
+const factoryLines = execFileSync('unzip', ['-p', factoryZip, factoryEntry], { maxBuffer: 1 << 28 }).toString().split(/\r?\n/);
+const fHeader = csvLine(factoryLines[0].replace(/^﻿/, ''));
+const fCol = fHeader.indexOf('工廠市鎮鄉村里');
+for (const l of factoryLines.slice(1)) {
+  const c = normCounty(csvLine(l)[fCol] ?? '').slice(0, 3);
+  if (c in factories) factories[c] += 1;
+}
+const factoryPeriod = `${Number(factoryEntry.slice(0, 3)) + 1911}-${factoryEntry.slice(3, 5)}`;
+const idaMeta = { category: '產業', period: factoryPeriod, source: '經濟部產業發展署登記工廠名錄（生產中）', url: 'https://data.gov.tw/dataset/6569' };
+fields.push(
+  { key: 'factories', label: '生產中工廠家數', unit: '家', ...idaMeta },
+  { key: 'factories_per10k', label: '每萬人工廠家數', unit: '家／萬人', digits: 1, ...idaMeta, national: per10k(sumAll((c) => factories[c]), allTotal) },
+);
+for (const c of COUNTIES) { items[c].factories = factories[c]; items[c].factories_per10k = per10k(factories[c], total(c)); }
+
+// 勞保投保人數（勞保局，依投保單位所在地）；地區別代碼用同一資料集的官方「代號對照表」（23＝金門、24＝連江、25＝新竹市、26＝嘉義市）
+const laborCodes = await latestResource(100999, (d) => d.resourceFormat === 'JSON' && d.resourceDescription === '代號對照表');
+const LABOR = Object.fromEntries((await (await fetch(laborCodes.resourceDownloadUrl)).json()).filter((r) => r['統計項目'] === '地區別').map((r) => [r['代號'], normCounty(r['對照中文名稱'])]));
+const laborRes = await latestResource(100999, (d) => d.resourceFormat === 'JSON' && /^\d+年統計資料/.test(d.resourceDescription));
+const laborRows = await (await fetch(laborRes.resourceDownloadUrl)).json();
+const laborYm = laborRows.reduce((m, r) => (r['資料年月'] > m ? r['資料年月'] : m), '');
+const labor = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
+for (const r of laborRows) if (r['資料年月'] === laborYm && LABOR[r['地區別']]) labor[LABOR[r['地區別']]] += Number(r['本月底投保人數']);
+if (Object.values(labor).some((n) => n === 0)) throw new Error('勞保地區別代碼對不上，有縣市是 0');
+const laborMeta = { category: '產業', period: `${Number(laborYm.slice(0, 3)) + 1911}-${laborYm.slice(3)} 月底`, source: '勞動部勞工保險局投保單位、人數原始統計', url: 'https://data.gov.tw/dataset/100999' };
+fields.push(
+  { key: 'labor_insured', label: '勞保投保人數（依投保單位所在地）', unit: '人', ...laborMeta },
+  { key: 'labor_insured_per1000', label: '每千人勞保投保人數', unit: '人／千人', digits: 1, ...laborMeta, national: perMille(sumAll((c) => labor[c]), allTotal) },
+);
+for (const c of COUNTIES) { items[c].labor_insured = labor[c]; items[c].labor_insured_per1000 = perMille(labor[c], total(c)); }
+
+// 原住民人口（戶政司現住原住民人口按性別、年齡；村里×性別×身分×年齡約 470 萬列，用串流加總）
+const indRes = await latestResource(77129, (d) => /^\d{5}/.test(d.resourceDescription) && d.resourceFormat === 'ZIP');
+const indZip = await download(indRes.resourceDownloadUrl, 'indigenous.zip');
+const indigenous = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
+const indProc = spawn('unzip', ['-p', indZip]);
+for await (const line of createInterface({ input: indProc.stdout })) {
+  const r = line.split(',');
+  const c = r[2]?.slice(0, 3);
+  // 只算平地＋山地原住民（一般說的原住民人口）；「平埔原住民」是新增的身分別，全國約一千多人，不併入
+  if (c in indigenous && (r[5] === '平地原住民' || r[5] === '山地原住民')) indigenous[c] += Number(r[7]) || 0;
+}
+const indYm = indRes.resourceDescription.slice(0, 5);
+const indMeta = { category: '人口', period: `${Number(indYm.slice(0, 3)) + 1911}-${indYm.slice(3)}`, source: '內政部戶政司現住原住民人口', url: 'https://data.gov.tw/dataset/77129' };
+fields.push(
+  { key: 'indigenous', label: '原住民人口（平地＋山地）', unit: '人', ...indMeta },
+  { key: 'indigenous_ratio', label: '原住民人口比率', unit: '%', ...indMeta, national: share(sumAll((c) => indigenous[c]), allTotal) },
+);
+for (const c of COUNTIES) { items[c].indigenous = indigenous[c]; items[c].indigenous_ratio = share(indigenous[c], total(c)); }
+
+// 學校數（教育部統計處各級學校名錄；多學年度合在一個檔的只取最新學年度）
+async function schoolCount(url) {
+  const rows = (await (await fetch(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
+  const col = rows[0].indexOf('縣市名稱');
+  const year = rows.slice(1).reduce((m, r) => Math.max(m, Number(r[0]) || 0), 0);
+  const out = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
+  for (const r of rows.slice(1)) { const c = normCounty(r[col] ?? ''); if (Number(r[0]) === year && c in out) out[c] += 1; }
+  return { year, out };
+}
+const SCHOOLS = [
+  ['schools_kindergarten', '幼兒園數', 'https://stats.moe.gov.tw/files/opendata/k1_new.csv', 6086],
+  ['schools_primary', '國小數', (await latestResource(6087, (d) => d.resourceDownloadUrl.endsWith('.csv'))).resourceDownloadUrl, 6087],
+  ['schools_junior', '國中數', 'https://stats.moe.gov.tw/files/opendata/j1_new.csv', 6088],
+  ['schools_senior', '一般高中數', (await latestResource(6089, (d) => d.resourceDownloadUrl.endsWith('.csv'))).resourceDownloadUrl, 6089],
+  ['schools_college', '大專校院數', 'https://stats.moe.gov.tw/files/opendata/u1_new.csv', 6091],
+];
+let primaryCount;
+for (const [key, label, url, id] of SCHOOLS) {
+  const { year, out } = await schoolCount(url);
+  fields.push({ key, label, unit: '所', category: '教育', period: `${year} 學年度`, source: '教育部統計處各級學校名錄', url: `https://data.gov.tw/dataset/${id}` });
+  for (const c of COUNTIES) items[c][key] = out[c];
+  if (key === 'schools_primary') primaryCount = { year, out };
+}
+fields.push({ key: 'pupils_per_primary_school', label: '平均每所國小的學齡兒童數', unit: '人／校', category: '教育', period: `${primaryCount.year} 學年度；人口 ${popPeriod}`, source: '教育部國小名錄＋戶政司 6–11 歲人口', url: 'https://data.gov.tw/dataset/6087',
+  national: Math.round(sumAll((c) => ageSum(c, 6, 11)) / sumAll((c) => primaryCount.out[c])) });
+for (const c of COUNTIES) items[c].pupils_per_primary_school = primaryCount.out[c] ? Math.round(ageSum(c, 6, 11) / primaryCount.out[c]) : null;
 
 /* ---------- 歷年趨勢：出生數、65 歲以上比率（近 5 個完整年度，戶政司村里資料加總） ---------- */
 
