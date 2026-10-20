@@ -15,6 +15,7 @@ import { CouncilSeats } from '../components/CouncilSeats';
 import { CustomData } from '../components/CustomData';
 import { CountyOverview } from '../components/CountyOverview';
 import { mergeStats } from '../lib/customData';
+import { noteFor } from '../lib/metricNotes';
 import { colorAt, type ScaleName } from '../lib/colorScales';
 import { downloadCsv } from '../lib/csv';
 import { partyStyle } from '../lib/parties';
@@ -365,6 +366,19 @@ function CountyDetail({ county, data, councilCounties, elections, topicMetrics, 
 
 /* ---------- 數據總覽、排行榜 ---------- */
 
+/** 比例的定義與白話意義（lib/metricNotes.ts）；不是比例的指標沒有說明就不顯示 */
+function MetricNote({ metricKey }: { metricKey: string }) {
+  const note = noteFor(metricKey);
+  if (!note) return null;
+  return (
+    <p className="metric-note">
+      <b>定義</b>　{note.definition}
+      <br />
+      <b>意義</b>　{note.meaning}
+    </p>
+  );
+}
+
 function MetricSelect({ label, options, value, onChange }: { label: string; options: { key: string; label: string; category?: string }[]; value: string; onChange: (key: string) => void }) {
   const option = (m: { key: string; label: string }) => (
     <option key={m.key} value={m.key}>
@@ -565,6 +579,7 @@ export function CountiesPage({ refreshToken, onOpenId, onNavigate }: CountiesPag
         {tab === 'compare' ? <MetricSelect label="比較指標（前次 → 最近一次）" options={pairs} value={pair.key} onChange={setPairKey} /> : null}
         <span className="muted">人口資料：{data.population_month}</span>
       </div>
+      <MetricNote metricKey={metric.key} />
       <Overview metric={metric} items={items} />
       </>
       )}

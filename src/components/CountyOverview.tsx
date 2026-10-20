@@ -1,6 +1,7 @@
 import { buildUrl } from '../api/client';
 import type { CountyItem, CountyTrendsResponse, DemographicsResponse, PopulationTrendResponse } from '../api/types';
 import { useApi } from '../hooks/useApi';
+import { noteFor } from '../lib/metricNotes';
 import { partyStyle } from '../lib/parties';
 
 /** 縣市總覽要用到的指標欄位（CountiesPage 的 Metric 的子集，避免循環 import） */
@@ -74,6 +75,7 @@ export function CountyOverview({ county, items, metrics, format, refreshToken, o
         ? { text: `${m.national ? '全國' : '縣市平均'} ${format(m, nationalValue)}`, diff: v - nationalValue }
         : { text: `占全國 ${((v / totalSum) * 100).toFixed(1)}%`, diff: null };
     const series = seriesOf(m.key);
+    const note = noteFor(m.key);
     return (
       <div key={m.key} className="overview-card">
         <span className="overview-label">{m.short ?? m.label}</span>
@@ -89,6 +91,13 @@ export function CountyOverview({ county, items, metrics, format, refreshToken, o
         </span>
         {series ? <Sparkline series={series} /> : null}
         {m.period ? <small className="muted">{m.period}</small> : null}
+        {note ? (
+          <details className="overview-note">
+            <summary>這是什麼？</summary>
+            <p><b>定義</b>　{note.definition}</p>
+            <p><b>意義</b>　{note.meaning}</p>
+          </details>
+        ) : null}
       </div>
     );
   };
