@@ -26,16 +26,17 @@ const GROUPS: { title: string; keys: string[] }[] = [
   { title: '少子化與教育', keys: ['birth_rate', 'age_preschool', 'age_primary', 'primary_outlook', 'young_dependency'] },
   { title: '醫療與長照', keys: ['beds_per10k', 'physicians_per10k', 'ltc_per1000_elderly', 'ltc_points'] },
   { title: '經濟與住居', keys: ['income', 'unemployment', 'house_price', 'price_to_income', 'house_deals_per10k'] },
+  { title: '能源', keys: ['elec_total', 'elec_per_capita', 'elec_residential_per_capita', 'elec_industry_share', 'elec_growth'] },
   { title: '財政', keys: ['own_revenue_ratio', 'expenditure_per_capita', 'debt_per_capita'] },
 ];
 /** 卡片 key → 趨勢線用哪一條歷年資料（每人負債沿用債務餘額的走勢） */
-const TREND_OF: Record<string, string> = { income: 'income', unemployment: 'unemployment', debt_per_capita: 'debt', births: 'births', elderly_ratio: 'elderly_ratio', population: 'population' };
+const TREND_OF: Record<string, string> = { income: 'income', unemployment: 'unemployment', debt_per_capita: 'debt', births: 'births', elderly_ratio: 'elderly_ratio', population: 'population', elec_total: 'electricity' };
 const RATE_UNIT = /%|‰|百分點|／|倍/;
 
 type Series = { label: string; points: { period: string; value: number }[] };
 
 /** 趨勢序列裡可以直接把縣市加總成全國的（其他的用腳本存的官方全國值） */
-const SUMMABLE = new Set(['births', 'debt']);
+const SUMMABLE = new Set(['births', 'debt', 'electricity']);
 
 export function CountyOverview({ area, items, metrics, format, refreshToken, onSelectCounty }: {
   /** 「全國」或縣市名稱 */

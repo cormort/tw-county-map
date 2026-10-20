@@ -11,8 +11,8 @@
  * - 農業部「農耕土地面積」開放資料（data.gov.tw/dataset/94988），取最新年度
  * - 戶政司村里單一年齡人口、出生死亡（kiang/data.moi.gov.tw 轉存），取最新月份與近 12 個月
  * - 移民署外籍與大陸港澳配偶人數（內政部統計查詢網），取最新月份
- * - 衛福部長照 ABC 據點；主計總處所得、失業率；國發會歲入歲出決算；國庫署公共債務
- * 另寫出 public/data/county-trends.json：所得、失業率、債務、出生數、老年人口比率的歷年值（縣市總覽的趨勢線）
+ * - 衛福部長照 ABC 據點；主計總處所得、失業率；國發會歲入歲出決算；國庫署公共債務；台電縣市別用電
+ * 另寫出 public/data/county-trends.json：所得、失業率、債務、用電量、出生數、老年人口比率的歷年值（縣市總覽的趨勢線）
  */
 import { execFileSync } from 'node:child_process';
 import { get as httpsGet } from 'node:https';
@@ -441,6 +441,53 @@ for (const c of COUNTIES) {
   items[c].debt_per_capita = items[c].debt === null ? null : Math.round((items[c].debt * 1e6) / total(c));
 }
 trends.debt = { label: '公共債務餘額', unit: '百萬元', points: debtYears.slice(-10).map((y) => ({ period: String(Number(y) + 1911), values: Object.fromEntries(COUNTIES.map((c) => [c, debtOf(y, c)])) })) };
+
+/* ---------- 用電量：台電各縣市住宅、服務業及機關用電統計（每月，2016 起；四類加總＝總用電） ---------- */
+
+const elecCsv = (await (await fetch('https://service.taipower.com.tw/data/opendata/apply/file/d007012/001.csv')).text()).replace(/^﻿/, '');
+// 售電量有千分位逗號與引號（"636,471,432"），不能直接切逗號
+const elecRows = elecCsv.split(/\r?\n/).slice(1).map((l) => [...l.matchAll(/("([^"]*)"|[^,]*)(,|$)/g)].map((m) => m[2] ?? m[1])).filter((r) => /^\d{5}$/.test(r[0]));
+const elec = new Map(); // 'YYYMM' → 縣市 → { 用電性質: 度 }
+for (const [ym, rawCounty, kind, kwh] of elecRows) {
+  const county = rawCounty.replace(/台/g, '臺');
+  if (!items[county]) continue;
+  const byCounty = elec.get(ym) ?? new Map();
+  const k = byCounty.get(county) ?? {};
+  k[kind] = (k[kind] ?? 0) + Number(kwh.replace(/,/g, ''));
+  byCounty.set(county, k);
+  elec.set(ym, byCounty);
+}
+const elecMonths = [...elec.keys()].sort();
+const last12 = elecMonths.slice(-12);
+const prev12 = elecMonths.slice(-24, -12);
+const elecSum = (months, c, kind) => months.reduce((s, ym) => {
+  const k = elec.get(ym)?.get(c) ?? {};
+  return s + (kind ? k[kind] ?? 0 : Object.values(k).reduce((t, v) => t + v, 0));
+}, 0);
+const rocToIso = (ym) => `${Number(ym.slice(0, 3)) + 1911}-${ym.slice(3)}`;
+const elecMeta = { category: '能源', period: `${rocToIso(last12[0])}～${rocToIso(last12.at(-1))}（近 12 個月）`, source: '台電各縣市住宅、服務業及機關用電統計', url: 'https://data.gov.tw/dataset/29935' };
+const elecAll = (months, kind) => COUNTIES.reduce((s, c) => s + elecSum(months, c, kind), 0);
+fields.push(
+  { key: 'elec_total', label: '總用電量', unit: '百萬度', ...elecMeta },
+  { key: 'elec_per_capita', label: '每人用電量', unit: '度／人', ...elecMeta, national: Math.round(elecAll(last12) / allTotal) },
+  { key: 'elec_residential_per_capita', label: '每人住宅用電量', unit: '度／人', ...elecMeta, national: Math.round(elecAll(last12, '住宅') / allTotal) },
+  { key: 'elec_industry_share', label: '工業用電占比', unit: '%', ...elecMeta, national: share(elecAll(last12, '工業'), elecAll(last12)) },
+  { key: 'elec_growth', label: '用電量年增率', unit: '%', ...elecMeta, national: share(elecAll(last12) - elecAll(prev12), elecAll(prev12)) },
+);
+for (const c of COUNTIES) {
+  const t = elecSum(last12, c);
+  items[c].elec_total = Math.round(t / 1e6);
+  items[c].elec_per_capita = Math.round(t / total(c));
+  items[c].elec_residential_per_capita = Math.round(elecSum(last12, c, '住宅') / total(c));
+  items[c].elec_industry_share = share(elecSum(last12, c, '工業'), t);
+  items[c].elec_growth = share(t - elecSum(prev12, c), elecSum(prev12, c));
+}
+// 歷年總用電量（只取 12 個月都有的曆年）
+const elecYears = [...new Set(elecMonths.map((ym) => ym.slice(0, 3)))].filter((y) => elecMonths.filter((ym) => ym.startsWith(y)).length === 12);
+trends.electricity = { label: '總用電量（百萬度）', unit: '百萬度', points: elecYears.slice(-10).map((y) => {
+  const months = elecMonths.filter((ym) => ym.startsWith(y));
+  return { period: String(Number(y) + 1911), values: Object.fromEntries(COUNTIES.map((c) => [c, Math.round(elecSum(months, c) / 1e6)])) };
+}) };
 
 /* ---------- 歷年趨勢：出生數、65 歲以上比率（近 5 個完整年度，戶政司村里資料加總） ---------- */
 

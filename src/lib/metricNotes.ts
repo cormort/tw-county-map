@@ -65,6 +65,12 @@ export const METRIC_NOTES: Record<string, { definition: string; meaning: string 
   // 經濟
   income: { definition: '家庭收支調查的平均每戶可支配所得（所得總額扣掉稅、社會保險等非消費支出）', meaning: '一般家庭一年真正能拿來花或存的錢；是平均數，會被高所得家庭拉高。' },
   unemployment: { definition: '失業人數 ÷ 勞動力 × 100（勞動力＝15 歲以上有工作或正在找工作的人）', meaning: '想工作的人之中，有幾 % 找不到工作。' },
+  // 能源
+  elec_total: { definition: '近 12 個月住宅、服務業、工業、農林漁牧四類售電量加總（百萬度；1 度＝1 千瓦小時）', meaning: '整個縣市一年用掉多少電；工業多的縣市會特別高。' },
+  elec_per_capita: { definition: '近 12 個月總用電量 ÷ 人口', meaning: '平均每人分到的用電量；包含工廠、商店用電，所以工業縣市會偏高，不等於家裡用多少電。' },
+  elec_residential_per_capita: { definition: '近 12 個月住宅用電量 ÷ 人口', meaning: '平均每人在家裡用多少電；跟氣候（冷氣）、家戶人數、生活型態有關。' },
+  elec_industry_share: { definition: '工業用電 ÷ 總用電量 × 100', meaning: '用電有幾成是工廠用的，看這個縣市的產業結構偏不偏工業。' },
+  elec_growth: { definition: '（近 12 個月總用電 － 前 12 個月總用電）÷ 前 12 個月總用電 × 100', meaning: '用電量一年來成長還是衰退；常跟產業擴張或景氣有關。' },
   // 財政
   own_revenue_ratio: { definition: '（歲入 － 中央補助及協助收入）÷ 歲入 × 100', meaning: '縣市自己收來的錢（稅、規費等）占總收入多少；越高越不依賴中央補助。' },
   expenditure_per_capita: { definition: '歲出決算 ÷ 人口', meaning: '平均花在每位居民身上的預算；地廣人稀或離島通常偏高。' },

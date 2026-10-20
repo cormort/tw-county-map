@@ -197,7 +197,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'data', label: '原始資料' },
 ];
 /** 主題優先：共同的分頁（地圖、對比、排行、原始資料）＋各主題自己的分頁 */
-const TOPICS = ['人口', '醫療', '房價', '經濟', '財政', '農業', '選舉', '自訂'];
+const TOPICS = ['人口', '醫療', '房價', '經濟', '能源', '財政', '農業', '選舉', '自訂'];
 const TOPIC_TABS: Record<string, Tab[]> = {
   人口: ['population', 'towns'],
   選舉: ['trend', 'legislators', 'split', 'demographics', 'compare', 'towns'],
