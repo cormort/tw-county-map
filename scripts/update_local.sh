@@ -48,14 +48,20 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     exit 0
 fi
 
-notify() { osascript -e "display notification \"$1\" with title \"縣市地圖資料更新\"" 2>/dev/null || true; }
-trap 'notify "更新失敗，請看 ~/Library/Logs/tw-county-map-update.log"' ERR
+# Telegram through this machine's Hermes (its home channel); macOS banner if that fails
+TITLE="縣市地圖資料更新"
+HERMES="${HERMES:-$HOME/.hermes/hermes-agent/.hermes/bin/hermes}"
+notify() {
+    [[ -x "$HERMES" ]] && "$HERMES" send -q -t telegram -s "$TITLE" "$1" 2>/dev/null && return
+    osascript -e "display notification \"${1//\"/\'}\" with title \"$TITLE\"" 2>/dev/null || true
+}
+trap 'notify "❌ 更新失敗：$BASH_COMMAND（第 $LINENO 行）。紀錄：$LOG"' ERR
 
 echo "=== $(date '+%F %T') ==="
 # Never touch work in progress
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "Working tree has uncommitted changes; skipping this run."
-    notify "略過：專案有未提交的修改"
+    notify "⏭️ 略過：專案有未提交的修改"
     exit 0
 fi
 
@@ -70,7 +76,7 @@ node scripts/snapshot.mjs
 if ! node scripts/county-stats.mjs; then
     echo "county-stats.mjs failed; keeping the previous county-stats / county-trends."
     git checkout -q -- public/data/county-stats.json public/data/county-trends.json
-    notify "醫療、房價等統計今天抓取失敗，沿用舊資料"
+    notify "⚠️ county-stats.mjs 失敗，醫療、房價等統計沿用舊資料；選舉快照照常更新。紀錄：$LOG"
 fi
 
 npm run build --silent  # a broken snapshot must not reach the site
@@ -99,8 +105,9 @@ if git diff --cached --quiet -- public/data ':(exclude)public/data/_snapshot.jso
     git reset -q && git checkout -q -- public/data  # drop the timestamp-only change
     exit 0
 fi
+CHANGED="$(git diff --cached --name-only -- public/data ':(exclude)public/data/_snapshot.json' | sed 's|.*/||; s|\.json$||' | paste -sd '、' -)"
 git diff --cached --stat -- public/data
 git commit -q -m "資料自動更新（Mac mini）$(date +%F)"
 git push -q
-notify "資料有更新，已推送並部署"
+notify "✅ 資料有更新，已推送並部署：$CHANGED"
 echo "Pushed."
