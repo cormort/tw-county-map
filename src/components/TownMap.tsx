@@ -88,10 +88,10 @@ export function countyViewBoxFor(counties: { items: { county: string; path: stri
  * 鄉鎮地圖：368 個鄉鎮市區的面量圖（人口、密度、增減、年齡結構、各黨得票率），可放大到單一縣市，
  * 疊上縣市界；右側為範圍內鄉鎮排行。
  */
-export function TownMap({ refreshToken, counties, county, onSelectCounty }: { refreshToken: number; counties: CountiesResponse; county: string | null; onSelectCounty?: (county: string) => void }) {
-  const map = useApi<TownMapResponse>(buildUrl('/town-map'), { refreshToken });
-  const demo = useApi<DemographicsResponse>(buildUrl('/demographics'), { refreshToken });
-  const trend = useApi<PopulationTrendResponse>(buildUrl('/population-trend'), { refreshToken });
+export function TownMap({ counties, county, onSelectCounty }: { counties: CountiesResponse; county: string | null; onSelectCounty?: (county: string) => void }) {
+  const map = useApi<TownMapResponse>(buildUrl('/town-map'));
+  const demo = useApi<DemographicsResponse>(buildUrl('/demographics'));
+  const trend = useApi<PopulationTrendResponse>(buildUrl('/population-trend'));
   const [metric, setMetric] = useState<MetricKey>('elderly_ratio');
   const [election, setElection] = useState<ElectionKey>('party_list_2024');
   const [partyChoice, setParty] = useState('民主進步黨');

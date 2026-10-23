@@ -128,8 +128,8 @@ function Scatter({ points, focus, color, xLabel, yLabel, onHover }: { points: Po
  * 人口結構 × 得票：以 368 個鄉鎮市區為單位，看年齡結構（2026-08 人口）與 2020／2024 各黨得票率的關聯。
  * 這是區域層級的相關，不能推論個人投票行為（生態謬誤）；人口時間點晚於選舉。
  */
-export function Demographics({ refreshToken, county }: { refreshToken: number; county: string | null }) {
-  const res = useApi<DemographicsResponse>(buildUrl('/demographics'), { refreshToken });
+export function Demographics({ county }: { county: string | null }) {
+  const res = useApi<DemographicsResponse>(buildUrl('/demographics'));
   const [xKey, setX] = useState<XKey>('elderly_ratio');
   const [election, setElection] = useState<ElectionKey>('party_list_2024');
   const [partyChoice, setParty] = useState('民主進步黨');
