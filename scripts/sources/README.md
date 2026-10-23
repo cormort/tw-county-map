@@ -90,6 +90,9 @@ export async function collect(ctx) {
 | `parseNdcCsv(text)`／`parseDebtRows(text)` | `sources/fiscal.mjs` | 欄名取自第一列、原始欄位順序 |
 | `parseNhiRows(lines)` | `sources/health-insurance.mjs` | 同縣市多列加總 |
 | `parseLaborRows(rows, codeMap)` | `sources/labor.mjs` | 只算最新月份、代碼對不上要拋錯 |
+| `parseLvrRows(csv)` | `sources/house-price.mjs` | 只算建物、房價只看住家用並排除親友、件數照算、第二列英文欄名要跳過 |
+| `parseFactoryRows(lines)` | `sources/factories.mjs` | 縣市取「工廠市鎮鄉村里」前 3 字、缺欄要拋錯 |
+| `indigenousLineOf(line)` | `sources/indigenous.mjs` | 平地＋山地原住民才算、平埔與非縣市列跳過 |
 
 另外兩條「結構」測試：`id` 不重複、`dependsOn` 指得到、每個模組 `provides` 宣告的鍵真的出現在
 `public/data/county-stats.json`（打錯字會在測試裡紅）。
@@ -97,9 +100,11 @@ export async function collect(ctx) {
 **改解析邏輯時**：先改測試的 fixture（手寫 2–3 個縣市）→ 看它紅 → 再改程式。真實檔案的欄位順序可以從
 `.cache/sources/` 抓一份來看（那是每個網址上一次成功的內容）。
 
-**還沒被測試涵蓋**：需要下載 PDF／zip 的解析（`medical` 的 PDF 本身、`factories` 的 zip、
-`indigenous` 的 zip、`house-price` 的四季 zip）。這些靠排程的 `stale`／`carried` 兩層擋，
-真的要測得先做「fixture 存檔＋離線模式」，那是另一輪。
+**測試的邊界（刻意畫在這裡）**：測的是「格式 → 數字」的解析，不是「下載、解壓、挑檔」的管線。
+PDF／zip 裡的 CSV 一經解出就進 `parse*`，所以格式變了仍會紅；只有「下載不到」「zip 換了檔名」
+這類問題不會紅 —— 那兩種由排程的 `stale`（改用該網址快取）與 `carried`（沿用上一版）擋，
+並跳通知。**不做**「把 30 MB 的村里 CSV、2 MB 的 PDF 存進 repo 當 fixture」：
+省下來的保護有限，代價是 repo 肥到幾十 MB，而且日期相關的檔名每天都要重錄。
 
 ## 新增一個來源
 

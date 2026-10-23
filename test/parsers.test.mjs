@@ -20,6 +20,9 @@ import { parseGcisRows } from '../scripts/sources/business.mjs';
 import { parseNdcCsv, parseDebtRows } from '../scripts/sources/fiscal.mjs';
 import { parseNhiRows } from '../scripts/sources/health-insurance.mjs';
 import { parseLaborRows } from '../scripts/sources/labor.mjs';
+import { parseLvrRows } from '../scripts/sources/house-price.mjs';
+import { parseFactoryRows } from '../scripts/sources/factories.mjs';
+import { indigenousLineOf } from '../scripts/sources/indigenous.mjs';
 import { sources } from '../scripts/sources/index.mjs';
 
 test('csvLine：雙引號裡有逗號', () => {
@@ -176,6 +179,48 @@ test('tableFromLines：跳過目錄列、縣市名有空白也認得、"-" 當 0
   assert.equal(rows['新北市'][0], 999);
   assert.throws(() => tableFromLines(lines, '表24醫療院所病床數'), /找不到/);
   assert.throws(() => tableFromLines(lines, '表20醫療院所家數', 4), /只讀到 3 個縣市/);
+});
+
+test('parseLvrRows：只算建物、房價只看住家用且排除親友，件數照算', () => {
+  const header = '交易標的,單價元平方公尺,總價元,主要用途,備註';
+  const csv = [
+    header,
+    'subject,unit_price,price,usage,note', // 第二列英文欄名，要跳過
+    '房地(土地+建物),330578.5,11000000,住家用,', // 正常住宅 → 單價 33.05 萬／坪（330578.5×3.305785÷10000）
+    '土地,200000,5000000,住家用,', // 純土地 → 不算件數也不進房價
+    '房地(土地+建物),300000,9000000,住家用,親友間交易', // 件數算，房價不算
+    '房地(土地+建物),400000,15000000,住商用,', // 件數算，房價不算
+    '房地(土地+建物),0,8000000,住家用,', // 單價 0 → 房價不算
+  ].join('\n');
+  const out = parseLvrRows(csv);
+  assert.equal(out.deals, 4, '四個建物交易（土地那列不算）');
+  assert.equal(out.prices.length, 1);
+  assert.equal(out.totals[0], 11000000);
+  assert.ok(Math.abs(out.prices[0] - 330578.5 * 3.305785 / 10000) < 1e-9);
+});
+
+test('parseFactoryRows：縣市取「工廠市鎮鄉村里」前 3 字，缺欄要拋錯', () => {
+  const lines = [
+    '工廠名稱,工廠市鎮鄉村里,產業類別',
+    '甲公司,臺北市內湖區,電子',
+    '乙公司,臺北市北投區,紡織',
+    '丙公司,連江縣南竿鄉,食品',
+    '丁公司,臺灣省,其他',
+  ];
+  const counts = parseFactoryRows(lines);
+  assert.equal(counts['臺北市'], 2);
+  assert.equal(counts['連江縣'], 1);
+  assert.equal(counts['新北市'], 0);
+  assert.throws(() => parseFactoryRows(['工廠名稱,產業類別', '甲公司,電子']), /工廠市鎮鄉村里/);
+});
+
+test('indigenousLineOf：平地＋山地原住民才算，平埔與非縣市列跳過', () => {
+  const line = (area, identity, n) => `x,y,${area},v,戶,${identity},性別,${n}`;
+  assert.deepEqual(indigenousLineOf(line('臺北市大安區', '平地原住民', 100)), { county: '臺北市', count: 100 });
+  assert.deepEqual(indigenousLineOf(line('連江縣南竿鄉', '山地原住民', 7)), { county: '連江縣', count: 7 });
+  assert.equal(indigenousLineOf(line('臺北市大安區', '平埔原住民', 3)), null, '平埔不併入');
+  assert.equal(indigenousLineOf(line('臺北市大安區', '非原住民', 999)), null);
+  assert.equal(indigenousLineOf('a,b,台灣省,v,戶,平地原住民,性別,5'), null);
 });
 
 test('來源註冊表：id 不重複、dependsOn 指得到、provides 對得上實際欄位', async () => {

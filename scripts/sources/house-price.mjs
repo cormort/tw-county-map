@@ -14,11 +14,37 @@ export const name = '房價、成交量（實價登錄）';
 export const provides = ['house_price', 'house_deals', 'house_deals_per10k'];
 export const dependsOn = ['medical']; // 每萬人件數的分母用年報的年底人口
 
+const PING = 3.305785; // 1 坪 = 3.305785 m²
 const SEASONS = ['114S4', '115S1', '115S2', '115S3'];
+
+/**
+ * 實價登錄單一縣市的 CSV → { deals, prices（萬元／坪）, totals（元） }。
+ *
+ * 規則（都是業務判斷，改之前先想清楚）：
+ * - 交易標的含「建物」才算有房子的買賣 → 排除純土地、純車位
+ * - 房價只看「住家用」，並排除親友／特殊關係／員工／瑕疵／急買急賣／毛胚
+ * - 被排除的列仍然算「成交件數」（deals），因為它們確實是買賣
+ * - 第二列是英文欄名，要跳過
+ * ponytail: 實價登錄 CSV 沒有引號欄位，直接切逗號；哪天出現引號再換 parser
+ */
+export function parseLvrRows(csv, { ping = PING } = {}) {
+  const [header, , ...rows] = csv.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+  const col = Object.fromEntries(header.split(',').map((h, i) => [h, i]));
+  const out = { deals: 0, prices: [], totals: [] };
+  for (const row of rows) {
+    const r = row.split(',');
+    if (!r[col['交易標的']]?.includes('建物')) continue;
+    out.deals += 1;
+    const unitPrice = Number(r[col['單價元平方公尺']]);
+    if (r[col['主要用途']] !== '住家用' || !(unitPrice > 0) || /親友|特殊|員工|瑕疵|急買急賣|毛胚/.test(r[col['備註']] ?? '')) continue;
+    out.prices.push((unitPrice * ping) / 10000);
+    out.totals.push(Number(r[col['總價元']]));
+  }
+  return out;
+}
 
 export async function collect({ items, fields, download, shared }) {
   const { pop, totalPop } = shared.medical;
-  const PING = 3.305785; // 1 坪 = 3.305785 m²
   const prices = Object.fromEntries(COUNTIES.map((c) => [c, []]));
   const totals = Object.fromEntries(COUNTIES.map((c) => [c, []])); // 住宅成交總價（元），算房價所得比
   const deals = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
@@ -31,18 +57,10 @@ export async function collect({ items, fields, download, shared }) {
       } catch {
         continue; // 該季該縣市沒有檔案
       }
-      const [header, , ...rows] = csv.replace(/^﻿/, '').split(/\r?\n/).filter(Boolean); // 第二列是英文欄名
-      const col = Object.fromEntries(header.split(',').map((h, i) => [h, i]));
-      for (const row of rows) {
-        const r = row.split(','); // ponytail: 實價登錄 CSV 沒有引號欄位，直接切逗號；哪天出現引號再換 parser
-        if (!r[col['交易標的']]?.includes('建物')) continue; // 只算有房子的買賣（排除純土地、純車位）
-        deals[county] += 1;
-        const unitPrice = Number(r[col['單價元平方公尺']]);
-        // 房價只看住宅、排除親友或特殊關係等異常交易
-        if (r[col['主要用途']] !== '住家用' || !(unitPrice > 0) || /親友|特殊|員工|瑕疵|急買急賣|毛胚/.test(r[col['備註']])) continue;
-        prices[county].push((unitPrice * PING) / 10000);
-        totals[county].push(Number(r[col['總價元']]));
-      }
+      const parsed = parseLvrRows(csv);
+      deals[county] += parsed.deals;
+      prices[county].push(...parsed.prices);
+      totals[county].push(...parsed.totals);
     }
   }
   const median = (xs) => {
