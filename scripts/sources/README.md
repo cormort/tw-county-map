@@ -34,6 +34,8 @@ export async function collect(ctx) {
 | `county.mjs` | `COUNTIES`、`LVR`、`MOA`、`round`、`per10k`、`median`、`monthsBack`、`rocToIso`、`csvLine`、`normCounty` |
 | `download.mjs` | `makeDownloader(tmpDir)`、`pdfLines()`（pdftotext） |
 | `datagov.mjs` | `latestResource(id, pick)`：data.gov.tw 資料集的最新一份資源 |
+| `dgbas.mjs` | `fetchDgbas(url)`：主計總處（補 TWCA 中繼憑證；憑證第一次要用才抓，import 時不發請求） |
+| `anomaly.mjs` | `detectAnomaly(prev, next)`：整欄數值變動的中位數 > 40% 視為異常（用中位數，單一縣市飆高不誤判） |
 
 ## runner（scripts/county-stats.mjs）
 
@@ -71,8 +73,10 @@ export async function collect(ctx) {
 | `ok` | 這次抓到 | 新值 | — |
 | `stale`（來源快取） | 連不上，改用該網址上一次成功的內容 | 上一次成功的值 | ⚠️ 有來源抓不到，已用快取 |
 | `carried`（沿用上一版） | 模組整個失敗，這一欄沿用上一版 JSON | 上一版的值＋`carried_at` | ⚠️ 有來源失敗：〈模組名〉 |
+| `anomaly`（數值異常） | 這一欄跟上一版差太多（中位數 > 40%） | 上一版的值＋`anomaly` | ⚠️ 有指標數值變動異常 |
 
-`meta.sources` 記每個來源的狀態，`meta.stale_sources`／`meta.carried` 記哪些資料不是今天算的。
+`meta.sources` 記每個來源的狀態，`meta.stale_sources`／`meta.carried`／`meta.anomalies` 記哪些資料不是今天算的。
+前端 `components/DataFreshness.tsx` 會把這些翻成頁面上方的提示與指標旁的標記。
 不管哪一種，**指標都不會從畫面消失**（欄位順序也照上一版排，不會跳位）。
 
 ## 測試（`npm test`）

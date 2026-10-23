@@ -8,7 +8,7 @@
  * 驗收鉤子：`COUNTY_STATS_FAIL_HOST=stats.moe.gov.tw` 會假裝該主機連不上（正式排程不設）。
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -94,6 +94,50 @@ function cachedResponse(buf) {
     text: async () => buf.toString('utf8'),
     json: async () => JSON.parse(buf.toString('utf8')),
   };
+}
+
+/** 快取上限：來源快取的 key 是完整網址（含年月、季別），每期都會新增，所以一定要有上限 */
+export const CACHE_LIMITS = { maxBytes: 600 * 1024 * 1024, maxFiles: 400, maxAgeDays: 400 };
+
+/**
+ * 清掉用不到的快取（最舊的先刪）。回傳刪了幾個、剩幾個、剩多少 bytes。
+ *
+ * 這是「保留最近成功的內容」的副作用：不清就會一直長（一年約 +180 MB）。
+ * 排程每次跑完呼叫一次即可；不要在抓資料過程中呼叫（可能刪掉正在用的檔）。
+ */
+export async function pruneCache({ dir = CACHE_DIR, now = Date.now(), ...limits } = {}) {
+  const { maxBytes, maxFiles, maxAgeDays } = { ...CACHE_LIMITS, ...limits };
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return { removed: 0, kept: 0, bytes: 0, skipped: true };
+  }
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name.startsWith('_')) continue;
+    try {
+      const info = await stat(join(dir, entry.name));
+      files.push({ path: join(dir, entry.name), size: info.size, mtime: info.mtimeMs });
+    } catch {
+      // 檔案剛被別的程序刪掉，當作不存在
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime); // 新的在前
+  const cutoff = now - maxAgeDays * 24 * 60 * 60 * 1000;
+  let bytes = 0;
+  const removed = [];
+  files.forEach((file, index) => {
+    const tooMany = index >= maxFiles;
+    const tooBig = bytes + file.size > maxBytes;
+    const tooOld = file.mtime < cutoff;
+    if (tooMany || tooBig || tooOld) removed.push(file);
+    else bytes += file.size;
+  });
+  for (const file of removed) {
+    try { await unlink(file.path); } catch { /* 已經不在了 */ }
+  }
+  return { removed: removed.length, kept: files.length - removed.length, bytes };
 }
 
 async function fallbackToCache(url, error) {

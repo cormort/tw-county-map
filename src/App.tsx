@@ -8,6 +8,7 @@ import { useApi } from './hooks/useApi';
 import { useParam } from './hooks/useParam';
 import { mergeStats } from './lib/customData';
 import { buildMetrics, resolveCounty } from './lib/metrics';
+import { DataFreshness } from './components/DataFreshness';
 import { Sources } from './components/Sources';
 import { MapView } from './views/MapView';
 import { OverviewView } from './views/OverviewView';
@@ -155,6 +156,7 @@ export function App() {
           ))}
         </nav>
       </header>
+      <DataFreshness stats={stats.data} />
       <main className="page">{body}</main>
       {res.data ? (
         <footer className="app-footer">

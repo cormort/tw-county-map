@@ -108,10 +108,24 @@ export interface CountyStatField {
   digits?: number;
   /** 比率、中位數這類不能相加的指標：全國值由腳本直接算好 */
   national?: number;
+  /** 這次沒抓到、沿用上一版的時間（runner 寫入） */
+  carried_at?: string | null;
+  /** 數值變動過大、已暫停更新（runner 寫入） */
+  anomaly?: { detected_at: string; median_change: number; compared: number } | null;
 }
 
 export interface CountyStatsResponse {
-  meta: { generated_at: string };
+  meta: {
+    generated_at: string;
+    /** 每個來源這一次的結果：ok／failed（runner 寫入） */
+    sources?: { id: string; name: string; status: 'ok' | 'failed'; error?: string }[];
+    /** 連不上、改用該網址上次成功的內容 */
+    stale_sources?: { host: string; cached_at: string; url: string }[];
+    /** 整個模組失敗、沿用上一版 JSON 的指標 */
+    carried?: { key: string; owner: string | null; carried_at: string | null }[];
+    /** 數值變動異常、已沿用上一版 */
+    anomalies?: { key: string; label: string; median_change: number; compared: number; counties: string[] }[];
+  };
   fields: CountyStatField[];
   items: Record<string, Record<string, number | null>>;
 }

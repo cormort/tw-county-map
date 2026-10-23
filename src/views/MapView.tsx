@@ -119,7 +119,7 @@ export function MapView({ data, metrics, current, onSelect, goView, custom }: Vi
         </section>
 
         <div className="map-stats">
-          <MetricNote metricKey={metric.key} />
+          <MetricNote metricKey={metric.key} metric={metric} />
           <Stats metric={metric} items={items} />
         </div>
 
@@ -136,15 +136,28 @@ export function MapView({ data, metrics, current, onSelect, goView, custom }: Vi
 }
 
 /** 指標的定義與白話意義（lib/metricNotes.ts）；沒有說明的指標（例如自訂資料）就不顯示 */
-function MetricNote({ metricKey }: { metricKey: string }) {
+function MetricNote({ metricKey, metric }: { metricKey: string; metric: Metric }) {
   const note = noteFor(metricKey);
-  if (!note) return null;
+  const stale = metric.anomaly || Boolean(metric.carriedAt);
   return (
-    <p className="metric-note">
-      <b>定義</b>　{note.definition}
-      <br />
-      <b>意義</b>　{note.meaning}
-    </p>
+    <>
+      {note ? (
+        <p className="metric-note">
+          <b>定義</b>　{note.definition}
+          <br />
+          <b>意義</b>　{note.meaning}
+        </p>
+      ) : null}
+      {/* 資料狀態放在地圖旁邊：看某一欄時就知道它是不是今天的 */}
+      <p className={stale ? 'metric-freshness stale' : 'metric-freshness muted'}>
+        {metric.source ? <>資料來源　{metric.source}・</> : null}
+        {metric.anomaly
+          ? '這次數值變動過大，已暫停更新（仍然顯示上一版）'
+          : metric.carriedAt
+            ? `這次沒抓到，沿用 ${metric.carriedAt.slice(0, 10).replace(/-/g, '/')} 的資料`
+            : '本次已更新'}
+      </p>
+    </>
   );
 }
 

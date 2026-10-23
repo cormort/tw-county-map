@@ -116,6 +116,11 @@ CARRIED_LINE="$(grep -a '^\[carried\] [0-9]' "$LOG" 2>/dev/null | tail -1 || tru
 if [[ -n "$FAILED" ]]; then
     notify "⚠️ 縣市統計有來源失敗：${FAILED%、}${CARRIED_LINE:+（${CARRIED_LINE#\[carried\] }）}。其他來源照常更新，紀錄：$LOG"
 fi
+# 數值變動異常＝上游改了單位或格式，已自動沿用上一版（不要讓可疑數字上線）
+ANOMALY_LINE="$(grep -a '^\[anomaly\] [0-9]' "$LOG" 2>/dev/null | tail -1 || true)"
+if [[ -n "$ANOMALY_LINE" ]]; then
+    notify "⚠️ 縣市統計有指標數值變動異常，已沿用上一版：${ANOMALY_LINE#\[anomaly\] }。請看一下是不是上游改了單位。紀錄：$LOG"
+fi
 
 # 解析器測試：紅了不代表資料壞，但代表上游格式變了 —— 要讓我知道，不要安靜地過去
 if ! npm test --silent >/dev/null 2>&1; then

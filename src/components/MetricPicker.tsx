@@ -6,7 +6,7 @@ import { noteText } from './Tip';
 /** 搜尋時「台／臺」視為同一字，空白切成多個關鍵字（全部都要出現） */
 const normalize = (s: string) => s.replace(/台/g, '臺').toLowerCase();
 
-type Option = Pick<Metric, 'key' | 'label' | 'category' | 'subcategory' | 'unit' | 'short' | 'period'>;
+type Option = Pick<Metric, 'key' | 'label' | 'category' | 'subcategory' | 'unit' | 'short' | 'period' | 'carriedAt' | 'anomaly'>;
 
 /**
  * 可搜尋的指標選單：取代以前「主題按鈕＋分析指標下拉＋比率／總量切換＋選舉三連動選單」四層控制。
@@ -142,7 +142,11 @@ export function MetricPicker({ label, metrics, value, onChange, id }: {
                     onMouseEnter={() => setActive(i)}
                     onClick={() => choose(m.key)}
                   >
-                    <span>{m.short ?? m.label}</span>
+                    <span>
+                      {m.short ?? m.label}
+                      {m.anomaly ? <span className="carried-badge" title="數值變動過大，已暫停更新">數值異常</span>
+                        : m.carriedAt ? <span className="carried-badge" title="這次沒抓到，沿用上一版">沿用</span> : null}
+                    </span>
                     <small className="muted">{[m.period, m.unit].filter(Boolean).join('・')}</small>
                   </div>
                 </li>

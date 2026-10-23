@@ -73,7 +73,14 @@ node scripts/county-stats.mjs   # 需要 pdftotext（brew install poppler）與 
   （存在 `.cache/sources/`，不進 git）；③ 模組整個失敗時，那幾欄**沿用上一版 JSON** 並標 `carried_at`；
   ④ 整支腳本連兩次失敗才真的沿用舊檔。用了快取／沿用的都會寫進 `meta.stale_sources`／`meta.carried`
   並跳通知（「⚠️ 有來源抓不到」／「⚠️ 有來源失敗：〈模組名〉」）。
+- **數值異常偵測**：每一欄都跟上一版比，22 個縣市裡「相對變動的中位數」超過 40% 就判定異常
+  （單一縣市飆高不會誤判），該欄沿用上一版、標 `anomaly`，並跳通知 —— 上游改單位（千元→元）
+  或解析錯欄位時，可疑數字不會上線。
+- **來源快取有上限**：每次跑完清一次（400 個檔／600 MB／400 天，最舊的先刪），避免每年長 180 MB。
 - 專案有未提交的修改就略過；失敗跳 macOS 通知，紀錄在 `~/Library/Logs/tw-county-map-update.log`。
+- **網站上看得到資料新舊**：有來源沒抓到、沿用上一版或數值異常時，頁面上方會出現提示
+  （「這份資料沒有全部更新」＋是哪個來源、沿用哪一天的資料），指標選單與地圖旁的說明也會標記。
+  以前只有 Telegram 通知，訪客看不出來。
 - 每年仍要人工改 `county-stats.mjs` 開頭的 `MOHW_PDF`、`MOHW_YEAR`、`SEASONS`。
 
 ```bash

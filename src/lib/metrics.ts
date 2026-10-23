@@ -29,6 +29,12 @@ export interface Metric {
   national?: { value: (items: CountyItem[]) => number | null; label: string };
   /** 選舉第一名政黨版圖：地圖改用政黨色，數值統計沒有意義 */
   partyOf?: (c: CountyItem) => string | null;
+  /** 這一欄這次沒抓到、沿用上一版（顯示「沿用 YYYY/MM/DD」） */
+  carriedAt?: string | null;
+  /** 數值變動過大、已被 runner 暫停更新 */
+  anomaly?: boolean;
+  /** 資料來源（指標說明用；選舉與人口指標沒有） */
+  source?: string;
 }
 
 export const ELECTIONS: CountyElectionKey[] = ['president_2024', 'president_2020', 'mayor_2022', 'mayor_2018'];
@@ -110,6 +116,9 @@ export function buildMetrics(data: CountiesResponse, stats?: CountyStatsResponse
       digits: f.digits,
       value: (c) => stats?.items[c.county]?.[f.key] ?? null,
       national: f.national === undefined ? undefined : { label: '全國', value: () => f.national ?? null },
+      carriedAt: f.carried_at ?? null,
+      anomaly: Boolean(f.anomaly),
+      source: f.source,
     });
   }
   for (const election of ELECTIONS) {

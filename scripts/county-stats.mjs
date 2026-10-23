@@ -9,7 +9,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { COUNTIES } from './lib/county.mjs';
-import { staleSources } from './lib/fetch-cache.mjs';
+import { detectAnomaly, valuesOf } from './lib/anomaly.mjs';
+import { pruneCache, staleSources } from './lib/fetch-cache.mjs';
 import { makeDownloader } from './lib/download.mjs';
 import { sources } from './sources/index.mjs';
 
@@ -62,6 +63,21 @@ for (const source of orderOf(sources)) {
 }
 if (!fields.length) throw new Error('沒有任何來源成功，保留舊檔不寫入');
 
+// 數值異常偵測：格式改版／改單位最常見的症狀是「整欄跳一個數量級」。
+// 判定異常就沿用上一版，不要讓可疑數字上線（並在 meta.anomalies 說明原因）。
+const anomalies = [];
+for (const field of fields) {
+  const prevValues = valuesOf(previous?.items, field.key);
+  if (!Object.keys(prevValues).length) continue;
+  const result = detectAnomaly(prevValues, valuesOf(items, field.key));
+  if (!result.anomaly) continue;
+  for (const [county, value] of Object.entries(prevValues)) {
+    if (value !== undefined) items[county][field.key] = value;
+  }
+  field.anomaly = { detected_at: new Date().toISOString(), median_change: Number((result.medianChange ?? 0).toFixed(3)), compared: result.compared };
+  anomalies.push({ key: field.key, label: field.label, median_change: field.anomaly.median_change, compared: result.compared, counties: result.counties });
+}
+
 // 失敗的來源不要讓指標憑空消失 —— 沿用上一版 JSON 的那幾欄，並在欄位上標 carried_at。
 const ownerOf = new Map();
 for (const source of sources) for (const key of source.provides ?? []) ownerOf.set(key, source.id);
@@ -86,12 +102,19 @@ const meta = {
   sources: statuses,
   ...(stale.length ? { stale_sources: stale } : {}),
   ...(carried.length ? { carried } : {}),
+  ...(anomalies.length ? { anomalies } : {}),
 };
 await writeFile(TRENDS_OUT, JSON.stringify({ meta: { generated_at: meta.generated_at }, series: trends }));
 await writeFile(OUT, JSON.stringify({ meta, fields, items }));
 console.log(`寫出 ${OUT}：${fields.length} 個指標（來源 ${statuses.length} 個）`);
 if (stale.length) console.log(`[stale] ${stale.length} 個來源改用快取：${stale.map((s) => `${s.host}（${s.cached_at.slice(0, 10)}）`).join('、')}`);
 else console.log('[stale] 無：所有來源都是這次抓到的');
+if (anomalies.length) console.log(`[anomaly] ${anomalies.length} 個指標數值變動異常，已沿用上一版：${anomalies.map((a) => `${a.key}（中位數變動 ${(a.median_change * 100).toFixed(0)}%）`).join('、')}`);
 if (carried.length) console.log(`[carried] ${carried.length} 個指標沿用上一版：${carried.map((x) => x.key).join('、')}`);
 else console.log('[carried] 無：所有指標都是這次算出來的');
 for (const c of ['臺北市', '連江縣']) console.log(c, JSON.stringify(items[c]));
+
+// 快取有上限：不清會一直長（key 含年月季別，每期都新增）
+const pruned = await pruneCache();
+if (pruned.skipped) console.log('[cache] 沒有快取目錄，略過清理');
+else console.log(`[cache] 移除 ${pruned.removed} 個舊快取，保留 ${pruned.kept} 個（${Math.round(pruned.bytes / 1024 / 1024)} MB）`);

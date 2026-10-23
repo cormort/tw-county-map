@@ -1,14 +1,16 @@
 import type { CountiesResponse, CountyStatsResponse } from '../api/types';
+import { CarriedBadge } from './DataFreshness';
 
 /** 頁尾資料來源：counties.json 自帶的來源＋county-stats.json 各指標的來源（同名來源合成一條，資料集各自編號連結） */
 export function Sources({ data, stats, snapshotAt }: { data: CountiesResponse; stats: CountyStatsResponse | null; snapshotAt: string }) {
-  const groups = new Map<string, string[]>();
+  const groups = new Map<string, { urls: string[]; carriedAt: string | null }>();
   for (const f of stats?.fields ?? []) {
     if (!f.url) continue;
     const label = `${f.source}（${f.period}）`;
-    const urls = groups.get(label) ?? [];
-    if (!urls.includes(f.url)) urls.push(f.url);
-    groups.set(label, urls);
+    const group = groups.get(label) ?? { urls: [], carriedAt: null };
+    if (!group.urls.includes(f.url)) group.urls.push(f.url);
+    group.carriedAt ??= f.carried_at ?? null; // 這一組只要有一欄沿用就標記
+    groups.set(label, group);
   }
   const link = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer noopener">{text}</a>;
   return (
@@ -18,7 +20,7 @@ export function Sources({ data, stats, snapshotAt }: { data: CountiesResponse; s
       </summary>
       <ul>
         {data.sources.map((s) => <li key={s.url}>{link(s.url, s.label)}</li>)}
-        {[...groups].map(([label, urls]) => (
+        {[...groups].map(([label, { urls, carriedAt }]) => (
           <li key={label}>
             {urls.length === 1 ? link(urls[0], label) : (
               <>
@@ -27,6 +29,7 @@ export function Sources({ data, stats, snapshotAt }: { data: CountiesResponse; s
                 ）
               </>
             )}
+            <CarriedBadge at={carriedAt} />
           </li>
         ))}
       </ul>
