@@ -117,6 +117,12 @@ if [[ -n "$FAILED" ]]; then
     notify "⚠️ 縣市統計有來源失敗：${FAILED%、}${CARRIED_LINE:+（${CARRIED_LINE#\[carried\] }）}。其他來源照常更新，紀錄：$LOG"
 fi
 
+# 解析器測試：紅了不代表資料壞，但代表上游格式變了 —— 要讓我知道，不要安靜地過去
+if ! npm test --silent >/dev/null 2>&1; then
+    TEST_FAIL="$(npm test --silent 2>&1 | grep -E '^✖|not ok' | head -3 | tr '\n' '；')"
+    notify "⚠️ 縣市統計的解析器測試沒過（資料照常更新）：${TEST_FAIL:-npm test 詳見紀錄}"
+fi
+
 npm run build --silent  # a broken snapshot must not reach the site
 git checkout -q -- tsconfig.tsbuildinfo 2>/dev/null || true
 
