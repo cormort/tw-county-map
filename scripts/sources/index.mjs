@@ -5,6 +5,8 @@
 import * as medical from './medical.mjs';
 import * as housePrice from './house-price.mjs';
 import * as farmland from './farmland.mjs';
+import * as population from './population.mjs';
+import * as populationChange from './population-change.mjs';
 import * as legacy from './legacy.mjs';
 
-export const sources = [medical, housePrice, farmland, legacy];
+export const sources = [medical, housePrice, farmland, population, populationChange, legacy];
