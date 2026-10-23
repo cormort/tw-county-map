@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "snapshot": "node scripts/snapshot.mjs",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.59.0",
