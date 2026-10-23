@@ -10,22 +10,32 @@ export const name = '用電量（台電縣市別）';
 export const provides = ['elec_total', 'elec_per_capita', 'elec_residential_per_capita', 'elec_industry_share', 'elec_growth'];
 export const dependsOn = ['population'];
 
-export async function collect({ items, fields, shared }) {
-  const { total, allTotal, share } = shared.population;
-  const trends = {};
-  const elecCsv = (await (await fetchRetry('https://service.taipower.com.tw/data/opendata/apply/file/d007012/001.csv')).text()).replace(/^﻿/, '');
-  // 售電量有千分位逗號與引號（"636,471,432"），不能直接切逗號
-  const elecRows = elecCsv.split(/\r?\n/).slice(1).map((l) => [...l.matchAll(/("([^"]*)"|[^,]*)(,|$)/g)].map((m) => m[2] ?? m[1])).filter((r) => /^\d{5}$/.test(r[0]));
-  const elec = new Map(); // 'YYYMM' → 縣市 → { 用電性質: 度 }
-  for (const [ym, rawCounty, kind, kwh] of elecRows) {
+/**
+ * 台電 CSV（月×縣市×用電性質×度數）→ Map('YYYMM' → 縣市 → { 性質: 度 })。
+ * 售電量欄位有千分位逗號與引號（"636,471,432"），不能直接切逗號；縣市名可能是「台」。
+ */
+export function parseElecRows(csvText) {
+  const rows = csvText.replace(/^\uFEFF/, '').split(/\r?\n/).slice(1)
+    .map((l) => [...l.matchAll(/("([^"]*)"|[^,]*)(,|$)/g)].map((m) => m[2] ?? m[1]))
+    .filter((r) => /^\d{5}$/.test(r[0]));
+  const elec = new Map();
+  for (const [ym, rawCounty, kind, kwh] of rows) {
     const county = rawCounty.replace(/台/g, '臺');
-    if (!items[county]) continue;
+    if (!COUNTIES.includes(county)) continue;
     const byCounty = elec.get(ym) ?? new Map();
     const k = byCounty.get(county) ?? {};
-    k[kind] = (k[kind] ?? 0) + Number(kwh.replace(/,/g, ''));
+    k[kind] = (k[kind] ?? 0) + Number(String(kwh).replace(/,/g, ''));
     byCounty.set(county, k);
     elec.set(ym, byCounty);
   }
+  return elec;
+}
+
+export async function collect({ items, fields, shared }) {
+  const { total, allTotal, share } = shared.population;
+  const trends = {};
+  const elecCsv = (await (await fetchRetry('https://service.taipower.com.tw/data/opendata/apply/file/d007012/001.csv')).text());
+  const elec = parseElecRows(elecCsv);
   const elecMonths = [...elec.keys()].sort();
   const last12 = elecMonths.slice(-12);
   const prev12 = elecMonths.slice(-24, -12);

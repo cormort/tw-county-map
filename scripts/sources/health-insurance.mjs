@@ -12,18 +12,27 @@ export const name = '健保參加人數（健保署）';
 export const provides = ['nhi_insured', 'nhi_coverage'];
 export const dependsOn = ['population'];
 
+/**
+ * 健保 CSV（縣市×鄉鎮×性別×年齡）→ 各縣市參加人數。
+ * 同一個縣市會有很多列（鄉鎮×性別×年齡），要加總；資料年月取最後一列看到的（同一份檔案都一樣）。
+ */
+export function parseNhiRows(lines) {
+  const nhi = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
+  let ym = '';
+  for (const l of lines.slice(1)) {
+    const r = l.split(',');
+    const c = normCounty(r[1] ?? '');
+    if (c in nhi) { nhi[c] += Number(r[6]) || 0; ym = r[0]; }
+  }
+  return { ym, nhi };
+}
+
 export async function collect({ items, fields, download, shared }) {
   const { share, sumAll } = shared.population;
   // 全民健保：全國設籍人口參加健保人數（健保署，每年；縣市×鄉鎮×性別×年齡），參加率的分母用同月戶籍人口
   const nhiRes = await latestResource(37276, (d) => d.resourceFormat === 'CSV');
   const nhiLines = (await (await fetchRetry(nhiRes.resourceDownloadUrl)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean);
-  const nhi = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
-  let nhiYm = '';
-  for (const l of nhiLines.slice(1)) {
-    const r = l.split(',');
-    const c = normCounty(r[1] ?? '');
-    if (c in nhi) { nhi[c] += Number(r[6]) || 0; nhiYm = r[0]; }
-  }
+  const { ym: nhiYm, nhi } = parseNhiRows(nhiLines);
   const nhiPopYm = `${Number(nhiYm.slice(0, 3)) + 1911}/${nhiYm.slice(3)}`;
   const nhiPop = await villageCsv('population', nhiPopYm);
   if (!nhiPop) throw new Error(`缺 ${nhiPopYm} 的村里人口資料（健保參加率的分母）`);

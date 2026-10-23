@@ -12,15 +12,26 @@ export const name = '公司與商業登記（商工行政）';
 export const provides = ['companies', 'companies_per1000', 'company_capital', 'businesses', 'businesses_per1000'];
 export const dependsOn = ['population'];
 
+/**
+ * 公司／商業登記 CSV（已切好的列）→ 縣市 → { 家數, 資本額 }。
+ * 縣市欄前面有縮排空白、有些列帶「[1]」之類的註記，靠 normCounty 清掉。
+ */
+export function parseGcisRows(rows) {
+  const out = {};
+  for (const r of rows.slice(1)) {
+    const c = normCounty(r[0] ?? '');
+    if (COUNTIES.includes(c)) out[c] = { count: Number(r[1]), capital: Number(r[2]) };
+  }
+  return out;
+}
+
 export async function collect({ items, fields, download, shared }) {
   const { total, allTotal, sumAll } = shared.population;
   // 公司、商業登記（商工行政資料開放平臺，每月）：縣市列前面有縮排空白
   async function gcisCounts(id) {
     const res = await latestResource(id, (d) => d.resourceFormat === 'CSV');
     const rows = (await (await fetchRetry(res.resourceDownloadUrl)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
-    const out = {};
-    for (const r of rows.slice(1)) { const c = normCounty(r[0]); if (items[c]) out[c] = { count: Number(r[1]), capital: Number(r[2]) }; }
-    return { period: res.resourceDescription.replace(/年|月/g, (m) => (m === '年' ? '-' : '')), out };
+    return { period: res.resourceDescription.replace(/年|月/g, (m) => (m === '年' ? '-' : '')), out: parseGcisRows(rows) };
   }
   const company = await gcisCounts(9346);
   const business = await gcisCounts(25346);

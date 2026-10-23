@@ -75,6 +75,32 @@ export async function collect(ctx) {
 `meta.sources` 記每個來源的狀態，`meta.stale_sources`／`meta.carried` 記哪些資料不是今天算的。
 不管哪一種，**指標都不會從畫面消失**（欄位順序也照上一版排，不會跳位）。
 
+## 測試（`npm test`）
+
+每個模組把「解析」抽成純函式，測試只餵文字／陣列，不下載、不看今天幾號（`test/parsers.test.mjs`）：
+
+| 函式 | 在哪 | 測什麼 |
+| --- | --- | --- |
+| `parseVillageCsv(text)` | `lib/moi.mjs` | 英文欄名轉中文、村里列按前 3 字加總、戶數那欄 |
+| `tableFromLines(lines, title, expect)` | `sources/medical.mjs` | 年報 PDF 表格、跳過目錄列、`-` 當 0 |
+| `parseSchoolRows(rows)` | `sources/education.mjs` | 多學年度只取最新、缺「縣市名稱」欄要拋錯 |
+| `parseElecRows(text)` | `sources/electricity.mjs` | 引號千分位、台→臺、非縣市列 |
+| `parseNpRows(lines)` | `sources/pension.mjs` | PDF 的 CJK 相容字要 NFKC |
+| `parseGcisRows(rows)` | `sources/business.mjs` | 縮排空白、`[1]` 註記 |
+| `parseNdcCsv(text)`／`parseDebtRows(text)` | `sources/fiscal.mjs` | 欄名取自第一列、原始欄位順序 |
+| `parseNhiRows(lines)` | `sources/health-insurance.mjs` | 同縣市多列加總 |
+| `parseLaborRows(rows, codeMap)` | `sources/labor.mjs` | 只算最新月份、代碼對不上要拋錯 |
+
+另外兩條「結構」測試：`id` 不重複、`dependsOn` 指得到、每個模組 `provides` 宣告的鍵真的出現在
+`public/data/county-stats.json`（打錯字會在測試裡紅）。
+
+**改解析邏輯時**：先改測試的 fixture（手寫 2–3 個縣市）→ 看它紅 → 再改程式。真實檔案的欄位順序可以從
+`.cache/sources/` 抓一份來看（那是每個網址上一次成功的內容）。
+
+**還沒被測試涵蓋**：需要下載 PDF／zip 的解析（`medical` 的 PDF 本身、`factories` 的 zip、
+`indigenous` 的 zip、`house-price` 的四季 zip）。這些靠排程的 `stale`／`carried` 兩層擋，
+真的要測得先做「fixture 存檔＋離線模式」，那是另一輪。
+
 ## 新增一個來源
 
 1. 在 `scripts/sources/` 加檔案，照上面的介面 `export`

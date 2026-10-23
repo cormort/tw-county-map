@@ -13,13 +13,21 @@ export const name = '財政（國發會歲入歲出＋國庫署債務）';
 export const provides = ['own_revenue_ratio', 'expenditure_per_capita', 'debt', 'debt_per_capita'];
 export const dependsOn = ['population'];
 
+/** 國發會彙編 CSV → 一列一個物件（欄名取自第一列；單位百萬元） */
+export function parseNdcCsv(text) {
+  const [header, ...rows] = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
+  return rows.map((r) => Object.fromEntries(header.map((h, i) => [h, r[i]])));
+}
+
+/** 國庫署 D3-09 CSV → 原始列的陣列（第 0 欄年度、第 1 欄縣市、第 6 欄債務餘額） */
+export function parseDebtRows(text) {
+  return text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
+}
+
 export async function collect({ items, fields, shared }) {
   const { total, allTotal, share, sumAll } = shared.population;
   const trends = {};
-  const ndcCsv = async (url) => {
-    const [header, ...rows] = (await (await fetchRetry(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
-    return rows.map((r) => Object.fromEntries(header.map((h, i) => [h, r[i]])));
-  };
+  const ndcCsv = async (url) => parseNdcCsv(await (await fetchRetry(url)).text());
   const rev = await ndcCsv('https://ws.ndc.gov.tw/Download.ashx?u=LzAwMS9hZG1pbmlzdHJhdG9yLzEwL3JlbGZpbGUvNTc4MS82Mzk2LzYxMTFhZDNmLTZkMmUtNGUxMC05OGRlLTQzNGE0YzgxM2U4My5jc3Y%3d&n=OC0xIOatsuWFpS5jc3Y%3d&icon=.csv');
   const exp = await ndcCsv('https://ws.ndc.gov.tw/Download.ashx?u=LzAwMS9hZG1pbmlzdHJhdG9yLzEwL3JlbGZpbGUvNTc4MS82Mzk2L2UxZTliZGQ2LTQyNWYtNGYwYS1iN2E3LTY3OGNhYWE0MzRlYy5jc3Y%3d&n=OC0yIOatsuWHui5jc3Y%3d&icon=.csv');
   const fiscalYear = rev[0]['年'];
@@ -39,7 +47,7 @@ export async function collect({ items, fields, shared }) {
     items[c].expenditure_per_capita = Math.round((Number(expOf(c)['合計實數']) * 1e6) / total(c));
   }
   // 公共債務（1 年以上＋未滿 1 年，百萬元）；比率欄直轄市與縣市分母不同（GDP vs 歲出），只取金額換算每人負債
-  const debtRows = (await (await fetchRetry('https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv')).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
+  const debtRows = parseDebtRows(await (await fetchRetry('https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv')).text());
   const debtYears = [...new Set(debtRows.slice(1).map((r) => r[0]))].sort();
   const debtOf = (year, c) => { const r = debtRows.find((x) => x[0] === year && x[1] === c); return r ? Number(r[6]) : null; };
   const debtYear = debtYears.at(-1);

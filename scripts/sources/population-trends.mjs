@@ -7,7 +7,7 @@ import { villageCsv } from '../lib/moi.mjs';
 
 export const id = 'population-trends';
 export const name = '歷年趨勢（出生數、老年比率）';
-export const provides = ['births', 'elderly_ratio'];
+export const provides = []; // 只產出 trends（歷年趨勢），不新增指標欄位
 export const dependsOn = ['population'];
 
 export async function collect({ items, fields, download, shared }) {

@@ -14,16 +14,22 @@ export const name = '教育（教育部各級學校名錄）';
 export const provides = ['schools_kindergarten', 'schools_primary', 'schools_junior', 'schools_senior', 'schools_college', 'pupils_per_primary_school'];
 export const dependsOn = ['population'];
 
+/** 名錄 CSV（已切好的列）→ 最新學年度的各縣市學校數；一個檔可能含多個學年度 */
+export function parseSchoolRows(rows) {
+  const col = rows[0].indexOf('縣市名稱');
+  if (col < 0) throw new Error('學校名錄沒有「縣市名稱」欄，格式變了');
+  const year = rows.slice(1).reduce((m, r) => Math.max(m, Number(r[0]) || 0), 0);
+  const out = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
+  for (const r of rows.slice(1)) { const c = normCounty(r[col] ?? ''); if (Number(r[0]) === year && c in out) out[c] += 1; }
+  return { year, out };
+}
+
 export async function collect({ items, fields, download, shared }) {
   const { ageSum, popPeriod, sumAll } = shared.population;
   // 學校數（教育部統計處各級學校名錄；多學年度合在一個檔的只取最新學年度）
   async function schoolCount(url) {
     const rows = (await (await fetchRetry(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
-    const col = rows[0].indexOf('縣市名稱');
-    const year = rows.slice(1).reduce((m, r) => Math.max(m, Number(r[0]) || 0), 0);
-    const out = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
-    for (const r of rows.slice(1)) { const c = normCounty(r[col] ?? ''); if (Number(r[0]) === year && c in out) out[c] += 1; }
-    return { year, out };
+    return parseSchoolRows(rows);
   }
   const SCHOOLS = [
     ['schools_kindergarten', '幼兒園數', 'https://stats.moe.gov.tw/files/opendata/k1_new.csv', 6086],

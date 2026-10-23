@@ -24,6 +24,7 @@
 ```bash
 npm install
 npm run dev        # http://localhost:5173
+npm test           # 解析器測試（node --test，不下載、不看日期）
 npm run build      # 產出 dist/（純靜態）
 npm run preview    # 預覽 dist/
 ```
