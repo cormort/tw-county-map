@@ -3,7 +3,7 @@
  * runner：把 scripts/sources/ 裡每個來源模組跑一遍，合併成 public/data/county-stats.json。
  * 介面與共用工具見 scripts/sources/README.md；來源壞掉只會影響它自己的欄位。
  */
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'public', 'data', 'county-stats.json');
 const TRENDS_OUT = join(ROOT, 'public', 'data', 'county-trends.json');
 
+const previous = await readFile(OUT, 'utf8').then(JSON.parse).catch(() => null); // 上一版（沿用舊值與固定欄位順序用）
 const tmp = await mkdtemp(join(tmpdir(), 'county-stats-'));
 const items = Object.fromEntries(COUNTIES.map((c) => [c, {}]));
 const fields = [];
@@ -47,6 +48,7 @@ const statuses = [];
 for (const source of orderOf(sources)) {
   const t0 = Date.now();
   try {
+    if (process.env.COUNTY_STATS_FAIL_SOURCE === source.id) throw new Error('（驗證用）模擬來源失敗');
     const result = (await source.collect(ctx)) ?? {};
     if (result.trends) Object.assign(trends, result.trends);
     if (result.shared) shared[source.id] = result.shared;
@@ -60,15 +62,36 @@ for (const source of orderOf(sources)) {
 }
 if (!fields.length) throw new Error('沒有任何來源成功，保留舊檔不寫入');
 
+// 失敗的來源不要讓指標憑空消失 —— 沿用上一版 JSON 的那幾欄，並在欄位上標 carried_at。
+const ownerOf = new Map();
+for (const source of sources) for (const key of source.provides ?? []) ownerOf.set(key, source.id);
+const carried = [];
+const have = new Set(fields.map((f) => f.key));
+for (const field of previous?.fields ?? []) {
+  if (have.has(field.key)) continue;
+  const values = Object.fromEntries(COUNTIES.map((c) => [c, previous.items?.[c]?.[field.key]]).filter(([, v]) => v !== undefined));
+  if (!Object.keys(values).length) continue; // 上一版本來就沒有這欄（新指標或從來沒成功過）
+  fields.push({ ...field, carried_at: previous.meta?.generated_at ?? null });
+  for (const [c, v] of Object.entries(values)) items[c][field.key] = v;
+  carried.push({ key: field.key, owner: ownerOf.get(field.key) ?? null, carried_at: previous.meta?.generated_at ?? null });
+}
+
+// 欄位順序照上一版排（新指標排最後），這樣某個來源臨時失敗時畫面不會整個跳位
+const orderOfKey = new Map((previous?.fields ?? []).map((f, i) => [f.key, i]));
+fields.sort((a, b) => (orderOfKey.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (orderOfKey.get(b.key) ?? Number.MAX_SAFE_INTEGER));
+
 const stale = [...staleSources.values()].sort((a, b) => a.host.localeCompare(b.host));
 const meta = {
   generated_at: new Date().toISOString(),
   sources: statuses,
   ...(stale.length ? { stale_sources: stale } : {}),
+  ...(carried.length ? { carried } : {}),
 };
 await writeFile(TRENDS_OUT, JSON.stringify({ meta: { generated_at: meta.generated_at }, series: trends }));
 await writeFile(OUT, JSON.stringify({ meta, fields, items }));
 console.log(`寫出 ${OUT}：${fields.length} 個指標（來源 ${statuses.length} 個）`);
 if (stale.length) console.log(`[stale] ${stale.length} 個來源改用快取：${stale.map((s) => `${s.host}（${s.cached_at.slice(0, 10)}）`).join('、')}`);
 else console.log('[stale] 無：所有來源都是這次抓到的');
+if (carried.length) console.log(`[carried] ${carried.length} 個指標沿用上一版：${carried.map((x) => x.key).join('、')}`);
+else console.log('[carried] 無：所有指標都是這次算出來的');
 for (const c of ['臺北市', '連江縣']) console.log(c, JSON.stringify(items[c]));

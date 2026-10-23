@@ -110,6 +110,12 @@ STALE_LINE="$(grep -a '^\[stale\] [0-9]' "$LOG" 2>/dev/null | tail -1 || true)"
 if [[ -n "$STALE_LINE" ]]; then
     notify "⚠️ 縣市統計有來源抓不到，已改用該來源的快取（其他來源照常更新）：${STALE_LINE#\[stale\] }"
 fi
+# 來源整個壞掉時指標不會消失（runner 沿用上一版），但一定要講是哪一個
+FAILED="$(grep -a '失敗：' "$LOG" 2>/dev/null | sed 's/^\[source\] //' | tr '\n' '、' || true)"
+CARRIED_LINE="$(grep -a '^\[carried\] [0-9]' "$LOG" 2>/dev/null | tail -1 || true)"
+if [[ -n "$FAILED" ]]; then
+    notify "⚠️ 縣市統計有來源失敗：${FAILED%、}${CARRIED_LINE:+（${CARRIED_LINE#\[carried\] }）}。其他來源照常更新，紀錄：$LOG"
+fi
 
 npm run build --silent  # a broken snapshot must not reach the site
 git checkout -q -- tsconfig.tsbuildinfo 2>/dev/null || true

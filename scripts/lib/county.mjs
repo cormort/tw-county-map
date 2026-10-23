@@ -17,6 +17,10 @@ export const MOA = { 65000: '新北市', 63000: '臺北市', 68000: '桃園市',
 
 export const round = (n, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
 export const per10k = (part, pop) => round((part / pop) * 10000, 2);
+/** 百分比（四捨五入到小數第二位）；分母 0 會得到 Infinity，呼叫端自己保證分母不是 0 */
+export const share = (part, whole) => round((part / whole) * 100, 2);
+/** 每千人（‰ 的分母 1000；粗出生率、粗死亡率、淨遷入率都用這個） */
+export const perMille = (n, p) => round((n / p) * 1000, 2);
 
 export const median = (xs) => {
   const s = [...xs].sort((a, b) => a - b);

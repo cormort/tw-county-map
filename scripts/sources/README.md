@@ -42,6 +42,39 @@ export async function collect(ctx) {
 3. 寫出 `public/data/county-stats.json`（`meta.sources` 記錄每個來源的狀態）
 4. 有來源改用快取時印 `[stale]`，排程腳本會轉成通知
 
+## 現有模組（17 個）
+
+| 模組 | 內容 | 依賴 |
+| --- | --- | --- |
+| `medical` | 衛福部醫事機構年報（PDF）＋年報年底人口 | — |
+| `house-price` | 實價登錄四季房價、成交量 | medical |
+| `farmland` | 農業部耕地面積 | — |
+| `population` | 戶政司村里人口、出生死亡、移民署新住民（**地基**） | — |
+| `population-change` | 人口增減、淨遷入、高齡化速度、扶老扶幼比 | population |
+| `care` | 長照 ABC 據點 | population |
+| `income` | 所得、失業率、房價所得比 | population, house-price |
+| `fiscal` | 歲入歲出決算、公共債務 | population |
+| `electricity` | 台電縣市別用電 | population |
+| `business` | 公司、商業登記 | population |
+| `factories` | 產發署登記工廠名錄（zip） | population |
+| `labor` | 勞保投保人數 | population |
+| `pension` | 國民年金被保險人數（每月 PDF） | population |
+| `health-insurance` | 健保參加人數、參加率 | population |
+| `indigenous` | 原住民族人口（470 萬列串流） | population |
+| `education` | 教育部各級學校名錄＋每所國小學齡人口 | population |
+| `population-trends` | 歷年出生數、老年人口比率 | population |
+
+## 失敗時的三種狀態
+
+| 狀態 | 意思 | 指標會怎樣 | 通知 |
+| --- | --- | --- | --- |
+| `ok` | 這次抓到 | 新值 | — |
+| `stale`（來源快取） | 連不上，改用該網址上一次成功的內容 | 上一次成功的值 | ⚠️ 有來源抓不到，已用快取 |
+| `carried`（沿用上一版） | 模組整個失敗，這一欄沿用上一版 JSON | 上一版的值＋`carried_at` | ⚠️ 有來源失敗：〈模組名〉 |
+
+`meta.sources` 記每個來源的狀態，`meta.stale_sources`／`meta.carried` 記哪些資料不是今天算的。
+不管哪一種，**指標都不會從畫面消失**（欄位順序也照上一版排，不會跳位）。
+
 ## 新增一個來源
 
 1. 在 `scripts/sources/` 加檔案，照上面的介面 `export`

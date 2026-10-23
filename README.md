@@ -65,10 +65,13 @@ node scripts/county-stats.mjs   # 需要 pdftotext（brew install poppler）與 
 
 - 不用 GitHub Action：`snapshot.mjs` 要連 Mac mini 本機的 `127.0.0.1:8787`，政府網站也可能擋雲端 IP。
 - 每份 API 回應都帶 `meta.generated_at`／`fetched_at`，比對時忽略這兩欄，只有時間戳記不同不算變動。
-- `county-stats.mjs` 的來源有三層保護（2026-10-23 教育部統計處連線逾時導致整份沿用舊檔之後補的）：
-  每個請求 3 次重試（退避 2／5／10 秒、30 秒上限）；仍失敗就**改用該網址上一次成功的內容**
-  （存在 `.cache/sources/`，不進 git），其他來源照常更新；整支腳本連兩次失敗才真的沿用舊檔。
-  用了快取會寫進 `county-stats.json` 的 `meta.stale_sources` 並跳「⚠️ 有來源改用快取」的通知。
+- `scripts/county-stats.mjs` 只是 runner：17 個來源各是一個模組（`scripts/sources/`，介面見該目錄的 README），
+  依 `dependsOn` 排序後逐一執行，**一個來源失敗不會影響其他來源**；欄位順序照上一版排、畫面不會跳位。
+- 來源保護的四層（2026-10-23 教育部統計處連線逾時導致整份沿用舊檔之後補的）：
+  ① 每個請求 3 次重試（退避 2／5／10 秒、30 秒上限）；② 仍失敗就**改用該網址上一次成功的內容**
+  （存在 `.cache/sources/`，不進 git）；③ 模組整個失敗時，那幾欄**沿用上一版 JSON** 並標 `carried_at`；
+  ④ 整支腳本連兩次失敗才真的沿用舊檔。用了快取／沿用的都會寫進 `meta.stale_sources`／`meta.carried`
+  並跳通知（「⚠️ 有來源抓不到」／「⚠️ 有來源失敗：〈模組名〉」）。
 - 專案有未提交的修改就略過；失敗跳 macOS 通知，紀錄在 `~/Library/Logs/tw-county-map-update.log`。
 - 每年仍要人工改 `county-stats.mjs` 開頭的 `MOHW_PDF`、`MOHW_YEAR`、`SEASONS`。
 
