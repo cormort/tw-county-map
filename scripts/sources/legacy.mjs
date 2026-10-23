@@ -2,8 +2,9 @@
  * 舊版一次到底的彙整（還沒拆完的部分）。
  *
  * 已獨立成模組：`medical.mjs`（醫療）、`house-price.mjs`（房價）、`farmland.mjs`（農地）、
- * `population.mjs`（人口結構）、`population-change.mjs`（人口動態）。
- * 這裡還剩：長照、所得失業、財政、用電、產業就業、教育、歷年趨勢。
+ * `population.mjs`（人口結構）、`population-change.mjs`（人口動態）、`care.mjs`（長照）、
+ * `fiscal.mjs`（財政）、`electricity.mjs`（用電）。
+ * 這裡還剩：產業就業、教育、歷年趨勢。
  * 人口的中間結果一律從 `shared.population` 拿（`ages`／`total`／`share`／`elderlyOf`…）。
  *
  * 消費 `shared['house-price'].totals`（住宅成交總價）算房價所得比；房價掛掉時那幾欄就是 null。
@@ -17,14 +18,14 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { COUNTIES, MOA, round, per10k, median, rocToIso, csvLine, normCounty } from '../lib/county.mjs';
+import { latestResource } from '../lib/datagov.mjs';
 import { villageCsv } from '../lib/moi.mjs';
 import { fetchRetry } from '../lib/fetch-cache.mjs';
-import { latestResource } from '../lib/datagov.mjs';
 
 export const id = 'legacy';
 export const name = 'legacy（整包：人口～教育）';
 export const provides = []; // 還沒有逐欄位宣告，第 2 輪拆開時補
-export const dependsOn = ['house-price', 'population-change']; // 房價：成交總價；人口：分母與比率
+export const dependsOn = ['population-change']; // 人口：分母與比率
 
 
 /**
@@ -34,174 +35,10 @@ export const dependsOn = ['house-price', 'population-change']; // 房價：成�
 export async function collect({ items, fields, tmp, download, shared }) {
   // 房價模組掛掉時不要讓整個 legacy 跟著爆：所得那幾欄就是 null
   const { ages, ageSum, total, allTotal, share, perMille, popPeriod, elderlyOf, sumAll } = shared.population;
+  const trends = {}; // 歷年趨勢（所得、失業、債務、用電已經搬到各自模組，這裡只剩出生數與老年人口比率）
   const now = new Date();
-  const totals = shared['house-price']?.totals ?? Object.fromEntries(COUNTIES.map((c) => [c, []]));
-  // 房價的期間說明（「近四季申報：…」）在房價模組裡算，這裡直接用
-  const lvr = shared['house-price']?.meta ?? { period: '房價資料缺少', source: '內政部實價登錄', url: 'https://plvr.land.moi.gov.tw/DownloadOpenData' };
-/* ---------- 長照（衛福部長照 ABC 據點，每日更新） ---------- */
-
-const ltcCsv = await (await fetchRetry('https://ltcpap.mohw.gov.tw/publish/abc.csv')).text();
-const ltc = Object.fromEntries(COUNTIES.map((c) => [c, new Set()]));
-for (const line of ltcCsv.split(/\r?\n/).slice(1)) {
-  // "機構名稱","機構代碼","機構種類","縣市代碼",…,"O_ABC"：同一機構每個特約服務各一列，用機構代碼去重。
-  // ponytail: 不分 A/B/C —— 臺北市在這份檔案裡一個 C 據點都沒有，C 據點顯然沒完整登錄在這裡
-  const m = line.match(/^"[^"]*","([^"]*)","[^"]*","(\d+)",/);
-  const county = m && MOA[m[2]];
-  if (!county) continue;
-  ltc[county].add(m[1]);
-}
-const ltcMeta = { category: '醫療', period: new Date().toISOString().slice(0, 10), source: '衛福部長照 ABC 據點', url: 'https://data.gov.tw/dataset/88270' };
-const elderlyAll = sumAll((c) => elderlyOf(ages, c));
-fields.push(
-  { key: 'ltc_points', label: '長照 ABC 據點數', unit: '處', ...ltcMeta },
-  { key: 'ltc_per1000_elderly', label: '每千名 65 歲以上長者的長照據點', unit: '處／千人', digits: 1, ...ltcMeta,
-    national: perMille(sumAll((c) => ltc[c].size), elderlyAll) },
-);
-for (const c of COUNTIES) {
-  items[c].ltc_points = ltc[c].size;
-  items[c].ltc_per1000_elderly = perMille(ltc[c].size, elderlyOf(ages, c));
-}
-
-/* ---------- 所得、失業率（主計總處）；ws.dgbas.gov.tw 的憑證鏈缺中繼憑證，自己補上 ---------- */
-
-const twcaDer = Buffer.from(await (await fetchRetry('http://sslserver.twca.com.tw/cacert/Cyber_SSL_2023.crt')).arrayBuffer());
-const twcaPem = `-----BEGIN CERTIFICATE-----\n${twcaDer.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`;
-const fetchDgbas = (url) => new Promise((resolve, reject) => {
-  httpsGet(url, { ca: [...rootCertificates, twcaPem] }, (res) => {
-    if (res.statusCode !== 200) return reject(new Error(`${url} → HTTP ${res.statusCode}`));
-    const chunks = [];
-    res.on('data', (d) => chunks.push(d)).on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-  }).on('error', reject);
-});
-const trends = {}; // key → { label, unit, points: [{ period, values: { 縣市: 值 } }] }
-
-// 平均每戶可支配所得（年，1998 起；金門、連江不在家庭收支調查範圍）
-const incomeRows = (await fetchDgbas('https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/232214/006-%E5%B9%B3%E5%9D%87%E6%AF%8F%E6%88%B6%E5%8F%AF%E6%94%AF%E9%85%8D%E6%89%80%E5%BE%97%E6%8C%89%E5%8D%80%E5%9F%9F%E5%88%A5%E5%88%86.csv'))
-  .replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(',').map((x) => x.replace(/"/g, '')));
-const incomeHeader = incomeRows[0].map((h) => h.replace(/-元$/, ''));
-const incomeByYear = incomeRows.slice(1).map((r) => ({ period: r[0], national: Number(r[1]), values: Object.fromEntries(incomeHeader.slice(1).map((h, i) => [h, Number(r[i + 1])]).filter(([h]) => items[h])) }));
-const incomeLatest = incomeByYear.at(-1);
-const nationalIncome = Number(incomeRows.at(-1)[1]);
-trends.income = { label: '平均每戶可支配所得', unit: '元', points: incomeByYear.slice(-10) };
-const dgbasIncome = { category: '經濟', period: `${incomeLatest.period} 年`, source: '主計總處家庭收支調查', url: 'https://data.gov.tw/dataset/9415' };
-fields.push({ key: 'income', label: '平均每戶可支配所得', unit: '元', ...dgbasIncome, national: nationalIncome });
-for (const c of COUNTIES) items[c].income = incomeLatest.values[c] ?? null;
-
-// 房價所得比：住宅成交總價中位數 ÷ 平均每戶可支配所得（官方用中位數所得，這裡只有平均數，數字會偏低一些）
-fields.push({ key: 'price_to_income', label: '房價所得比（成交總價中位數 ÷ 平均每戶可支配所得）', unit: '倍', digits: 1, category: '房價', period: `${lvr.period}；所得 ${incomeLatest.period} 年`, source: '內政部實價登錄＋主計總處家庭收支調查', url: 'https://plvr.land.moi.gov.tw/DownloadOpenData',
-  national: round(median(Object.values(totals).flat()) / nationalIncome) });
-for (const c of COUNTIES) {
-  const m = median(totals[c]);
-  items[c].price_to_income = m !== null && items[c].income ? round(m / items[c].income) : null;
-}
-
-// 失業率（年；只取已過完的完整年度，表裡也有半年列）
-const unempXml = await fetchDgbas('https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230038/mp0101a10.xml');
-const unempByYear = [...unempXml.matchAll(/<縣市別失業率>([\s\S]*?)<\/縣市別失業率>/g)].map(([, body]) => ({
-  period: body.match(/<年月別_Year_and_month>([^<]*)</)[1],
-  values: Object.fromEntries([...body.matchAll(/<([^_<>]+)_[^>]*_百分比>([^<]*)</g)].filter(([, n]) => items[n]).map(([, n, v]) => [n, Number(v)])),
-  national: Number(body.match(/<臺灣地區_Taiwan_Area_百分比>([^<]*)</)?.[1]),
-})).filter((r) => /^\d{4}$/.test(r.period) && Number(r.period) < now.getUTCFullYear());
-const unempLatest = unempByYear.at(-1);
-trends.unemployment = { label: '失業率', unit: '%', points: unempByYear.slice(-10) };
-fields.push({ key: 'unemployment', label: '失業率', unit: '%', category: '經濟', period: `${unempLatest.period} 年`, source: '主計總處人力資源調查', url: 'https://data.gov.tw/dataset/6640', national: unempLatest.national });
-for (const c of COUNTIES) items[c].unemployment = unempLatest.values[c] ?? null;
-
-/* ---------- 財政：歲入、歲出決算（國發會彙編）、公共債務（國庫署） ---------- */
-
-const ndcCsv = async (url) => {
-  const [header, ...rows] = (await (await fetchRetry(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
-  return rows.map((r) => Object.fromEntries(header.map((h, i) => [h, r[i]])));
-};
-const rev = await ndcCsv('https://ws.ndc.gov.tw/Download.ashx?u=LzAwMS9hZG1pbmlzdHJhdG9yLzEwL3JlbGZpbGUvNTc4MS82Mzk2LzYxMTFhZDNmLTZkMmUtNGUxMC05OGRlLTQzNGE0YzgxM2U4My5jc3Y%3d&n=OC0xIOatsuWFpS5jc3Y%3d&icon=.csv');
-const exp = await ndcCsv('https://ws.ndc.gov.tw/Download.ashx?u=LzAwMS9hZG1pbmlzdHJhdG9yLzEwL3JlbGZpbGUvNTc4MS82Mzk2L2UxZTliZGQ2LTQyNWYtNGYwYS1iN2E3LTY3OGNhYWE0MzRlYy5jc3Y%3d&n=OC0yIOatsuWHui5jc3Y%3d&icon=.csv');
-const fiscalYear = rev[0]['年'];
-const revOf = (c) => rev.find((r) => r['地區'] === c);
-const expOf = (c) => exp.find((r) => r['地區'] === c);
-// 自有財源＝歲入－補助及協助收入（單位百萬元）。以歲出當分母時臺北市會超過 100%（2024 歲入 2,228 億、歲出 1,587 億），
-// 跟官方「自有財源比率」對不起來，所以用定義明確的「占歲入比率」
-const ownRevenue = (c) => Number(revOf(c)['合計實數']) - Number(revOf(c)['補助及協助收入實數']);
-const fiscal = { category: '財政', period: `${fiscalYear} 年度決算`, source: '國發會都市及區域發展統計彙編（各縣市歲入、歲出決算）', url: 'https://data.gov.tw/dataset/6518' };
-fields.push(
-  { key: 'own_revenue_ratio', label: '自有財源占歲入比率', unit: '%', ...fiscal, national: share(sumAll(ownRevenue), sumAll((c) => Number(revOf(c)['合計實數']))) },
-  { key: 'expenditure_per_capita', label: '每人歲出', unit: '元', ...fiscal, national: Math.round((sumAll((c) => Number(expOf(c)['合計實數'])) * 1e6) / allTotal) },
-);
-for (const c of COUNTIES) {
-  if (!revOf(c) || !expOf(c)) continue;
-  items[c].own_revenue_ratio = share(ownRevenue(c), Number(revOf(c)['合計實數']));
-  items[c].expenditure_per_capita = Math.round((Number(expOf(c)['合計實數']) * 1e6) / total(c));
-}
-// 公共債務（1 年以上＋未滿 1 年，百萬元）；比率欄直轄市與縣市分母不同（GDP vs 歲出），只取金額換算每人負債
-const debtRows = (await (await fetchRetry('https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv')).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
-const debtYears = [...new Set(debtRows.slice(1).map((r) => r[0]))].sort();
-const debtOf = (year, c) => { const r = debtRows.find((x) => x[0] === year && x[1] === c); return r ? Number(r[6]) : null; };
-const debtYear = debtYears.at(-1);
-fields.push(
-  { key: 'debt', label: '公共債務餘額', unit: '百萬元', category: '財政', period: `${Number(debtYear) + 1911} 年度`, source: '財政部國庫署歷年各級政府債務概況', url: 'https://data.gov.tw/dataset/25301' },
-  { key: 'debt_per_capita', label: '每人負債', unit: '元', category: '財政', period: `${Number(debtYear) + 1911} 年度`, source: '財政部國庫署歷年各級政府債務概況', url: 'https://data.gov.tw/dataset/25301',
-    national: Math.round((sumAll((c) => debtOf(debtYear, c) ?? 0) * 1e6) / allTotal) },
-);
-for (const c of COUNTIES) {
-  items[c].debt = debtOf(debtYear, c);
-  items[c].debt_per_capita = items[c].debt === null ? null : Math.round((items[c].debt * 1e6) / total(c));
-}
-trends.debt = { label: '公共債務餘額', unit: '百萬元', points: debtYears.slice(-10).map((y) => ({ period: String(Number(y) + 1911), values: Object.fromEntries(COUNTIES.map((c) => [c, debtOf(y, c)])) })) };
-
-/* ---------- 用電量：台電各縣市住宅、服務業及機關用電統計（每月，2016 起；四類加總＝總用電） ---------- */
-
-const elecCsv = (await (await fetchRetry('https://service.taipower.com.tw/data/opendata/apply/file/d007012/001.csv')).text()).replace(/^﻿/, '');
-// 售電量有千分位逗號與引號（"636,471,432"），不能直接切逗號
-const elecRows = elecCsv.split(/\r?\n/).slice(1).map((l) => [...l.matchAll(/("([^"]*)"|[^,]*)(,|$)/g)].map((m) => m[2] ?? m[1])).filter((r) => /^\d{5}$/.test(r[0]));
-const elec = new Map(); // 'YYYMM' → 縣市 → { 用電性質: 度 }
-for (const [ym, rawCounty, kind, kwh] of elecRows) {
-  const county = rawCounty.replace(/台/g, '臺');
-  if (!items[county]) continue;
-  const byCounty = elec.get(ym) ?? new Map();
-  const k = byCounty.get(county) ?? {};
-  k[kind] = (k[kind] ?? 0) + Number(kwh.replace(/,/g, ''));
-  byCounty.set(county, k);
-  elec.set(ym, byCounty);
-}
-const elecMonths = [...elec.keys()].sort();
-const last12 = elecMonths.slice(-12);
-const prev12 = elecMonths.slice(-24, -12);
-const elecSum = (months, c, kind) => months.reduce((s, ym) => {
-  const k = elec.get(ym)?.get(c) ?? {};
-  return s + (kind ? k[kind] ?? 0 : Object.values(k).reduce((t, v) => t + v, 0));
-}, 0);
-const rocToIso = (ym) => `${Number(ym.slice(0, 3)) + 1911}-${ym.slice(3)}`;
-const elecMeta = { category: '能源', period: `${rocToIso(last12[0])}～${rocToIso(last12.at(-1))}（近 12 個月）`, source: '台電各縣市住宅、服務業及機關用電統計', url: 'https://data.gov.tw/dataset/29935' };
-const elecAll = (months, kind) => COUNTIES.reduce((s, c) => s + elecSum(months, c, kind), 0);
-fields.push(
-  { key: 'elec_total', label: '總用電量', unit: '百萬度', ...elecMeta },
-  { key: 'elec_per_capita', label: '每人用電量', unit: '度／人', ...elecMeta, national: Math.round(elecAll(last12) / allTotal) },
-  { key: 'elec_residential_per_capita', label: '每人住宅用電量', unit: '度／人', ...elecMeta, national: Math.round(elecAll(last12, '住宅') / allTotal) },
-  { key: 'elec_industry_share', label: '工業用電占比', unit: '%', ...elecMeta, national: share(elecAll(last12, '工業'), elecAll(last12)) },
-  { key: 'elec_growth', label: '用電量年增率', unit: '%', ...elecMeta, national: share(elecAll(last12) - elecAll(prev12), elecAll(prev12)) },
-);
-for (const c of COUNTIES) {
-  const t = elecSum(last12, c);
-  items[c].elec_total = Math.round(t / 1e6);
-  items[c].elec_per_capita = Math.round(t / total(c));
-  items[c].elec_residential_per_capita = Math.round(elecSum(last12, c, '住宅') / total(c));
-  items[c].elec_industry_share = share(elecSum(last12, c, '工業'), t);
-  items[c].elec_growth = share(t - elecSum(prev12, c), elecSum(prev12, c));
-}
-// 歷年總用電量（只取 12 個月都有的曆年）
-const elecYears = [...new Set(elecMonths.map((ym) => ym.slice(0, 3)))].filter((y) => elecMonths.filter((ym) => ym.startsWith(y)).length === 12);
-trends.electricity = { label: '總用電量（百萬度）', unit: '百萬度', points: elecYears.slice(-10).map((y) => {
-  const months = elecMonths.filter((ym) => ym.startsWith(y));
-  return { period: String(Number(y) + 1911), values: Object.fromEntries(COUNTIES.map((c) => [c, Math.round(elecSum(months, c) / 1e6)])) };
-}) };
-
 /* ---------- 產業、就業、原住民、學校 ---------- */
 
-/** data.gov.tw 資料集的最新一份資源（依說明或網址排序取最後；pick 可篩格式） */
-async function latestResource(id, pick = () => true) {
-  const r = (await (await fetchRetry(`https://data.gov.tw/api/v2/rest/dataset/${id}`)).json()).result;
-  const list = r.distribution.filter(pick).sort((a, b) => `${a.resourceDescription}${a.resourceDownloadUrl}`.localeCompare(`${b.resourceDescription}${b.resourceDownloadUrl}`));
-  return list.at(-1);
-}
 /** 切一列 CSV（處理雙引號欄位） */
 const csvLine = (l) => [...l.matchAll(/("([^"]*)"|[^,]*)(,|$)/g)].slice(0, -1).map((m) => m[2] ?? m[1]);
 const normCounty = (name) => name.replace(/^\[\d+\]/, '').replace(/台/g, '臺').trim();
