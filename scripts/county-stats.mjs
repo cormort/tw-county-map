@@ -21,21 +21,22 @@ const tmp = await mkdtemp(join(tmpdir(), 'county-stats-'));
 const items = Object.fromEntries(COUNTIES.map((c) => [c, {}]));
 const fields = [];
 const trends = {};
-const ctx = { tmp, items, fields, trends, download: makeDownloader(tmp) };
+const shared = {}; // 來源之間共用已算好的中間結果（例如年報人口、住宅成交總價）
+const ctx = { tmp, items, fields, trends, shared, download: makeDownloader(tmp) };
 
 /** 依 dependsOn 排出順序（被依賴的先跑；成環就報錯，不要靜靜地只跑一半） */
 function orderOf(list) {
   const done = new Set();
   const out = [];
   const walk = (source, stack = []) => {
-    if (done.has(source.name)) return;
-    if (stack.includes(source.name)) throw new Error(`來源相依成環：${[...stack, source.name].join(' → ')}`);
+    if (done.has(source.id)) return;
+    if (stack.includes(source.id)) throw new Error(`來源相依成環：${[...stack, source.id].join(' → ')}`);
     for (const dep of source.dependsOn ?? []) {
-      const target = list.find((s) => s.name === dep);
-      if (!target) throw new Error(`${source.name} 宣告相依 ${dep}，但沒有這個模組`);
-      walk(target, [...stack, source.name]);
+      const target = list.find((s) => s.id === dep);
+      if (!target) throw new Error(`${source.id} 宣告相依 ${dep}，但沒有這個模組`);
+      walk(target, [...stack, source.id]);
     }
-    done.add(source.name);
+    done.add(source.id);
     out.push(source);
   };
   for (const source of list) walk(source);
@@ -48,12 +49,13 @@ for (const source of orderOf(sources)) {
   try {
     const result = (await source.collect(ctx)) ?? {};
     if (result.trends) Object.assign(trends, result.trends);
-    statuses.push({ name: source.name, status: 'ok' });
+    if (result.shared) shared[source.id] = result.shared;
+    statuses.push({ id: source.id, name: source.name, status: 'ok' });
     console.log(`[source] ${source.name} ok（${Date.now() - t0} ms）`);
   } catch (error) {
     const message = String(error?.message ?? error);
     console.error(`[source] ${source.name} 失敗：${message}`);
-    statuses.push({ name: source.name, status: 'failed', error: message });
+    statuses.push({ id: source.id, name: source.name, status: 'failed', error: message });
   }
 }
 if (!fields.length) throw new Error('沒有任何來源成功，保留舊檔不寫入');

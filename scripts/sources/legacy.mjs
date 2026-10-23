@@ -1,11 +1,14 @@
 /**
- * 整包的舊版彙整（暫時的單一模組）。
+ * 舊版一次到底的彙整（還沒拆完的部分）。
  *
- * 第 2 輪會把下面每一段拆成獨立模組（醫療、房價、農地、人口、長照、所得、財政、用電、
- * 產業、教育、趨勢），每拆出一個就從這裡刪掉那一段。在那之前 runner 只認它是一個來源。
+ * 已獨立成模組：`medical.mjs`（醫療）、`house-price.mjs`（房價）、`farmland.mjs`（農地）。
+ * 這裡還剩：人口結構、人口動態、長照、所得失業、財政、用電、產業就業、教育、歷年趨勢。
+ * 這些區塊彼此共用人口的中間結果（`ages`／`total`／`share`／`elderlyOf`），先一起留在這裡，
+ * 等人口拆成獨立模組（提供 `shared`）再一段一段搬出去。
  *
- * 來源設定（每年要人工維護）：MOHW_PDF／MOHW_YEAR（衛福部年報）、SEASONS（實價登錄季別）、FARM。
+ * 消費 `shared['house-price'].totals`（住宅成交總價）算房價所得比；房價掛掉時那幾欄就是 null。
  */
+
 import { execFileSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { get as httpsGet } from 'node:https';
@@ -13,136 +16,25 @@ import { rootCertificates } from 'node:tls';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { COUNTIES, LVR, MOA, round, per10k, median, monthsBack, rocToIso, csvLine, normCounty } from '../lib/county.mjs';
+import { COUNTIES, MOA, round, per10k, median, monthsBack, rocToIso, csvLine, normCounty } from '../lib/county.mjs';
 import { fetchRetry } from '../lib/fetch-cache.mjs';
 import { latestResource } from '../lib/datagov.mjs';
 
-export const name = 'legacy（整包：醫療～教育）';
+export const id = 'legacy';
+export const name = 'legacy（整包：人口～教育）';
 export const provides = []; // 還沒有逐欄位宣告，第 2 輪拆開時補
-export const dependsOn = [];
+export const dependsOn = ['house-price']; // 房價所得比要用它算好的住宅成交總價
 
-const MOHW_PDF = 'https://www.mohw.gov.tw/dl-97890-29ae7106-ef97-442e-b3ff-9a8eb164f7a6.html';
-const MOHW_YEAR = '113 年底';
-const SEASONS = ['114S4', '115S1', '115S2', '115S3'];
-const FARM = 'https://data.moa.gov.tw/Service/OpenData/TransService.aspx?UnitId=TtusYV8k5Wz8&IsTransData=1';
 
 /**
  * @param {{ items: Record<string, Record<string, number|null>>, fields: Array<object>,
  *           tmp: string, download: (url: string, name: string) => Promise<string> }} ctx
  */
-export async function collect({ items, fields, tmp, download }) {
-/* ---------- 醫療（衛福部年報） ---------- */
-
-const pdf = await download(MOHW_PDF, 'mohw.pdf');
-const text = execFileSync('pdftotext', ['-layout', pdf, '-'], { maxBuffer: 1 << 28 }).toString().split('\n');
-
-/** 表格本體（跳過目錄那一行）：回傳 縣市 → 數字欄位（「-」當 0） */
-function table(title) {
-  const start = text.findIndex((l) => l.replace(/\s/g, '').startsWith(title) && !l.includes('....'));
-  if (start < 0) throw new Error(`年報找不到「${title}」`);
-  const rows = {};
-  for (const line of text.slice(start)) {
-    const m = line.match(/^\s*((?:\S\s*){2}[縣市])\s+[A-Za-z][A-Za-z ]*?\s{2,}(.*)$/);
-    if (!m) continue;
-    const county = m[1].replace(/\s/g, '').normalize('NFKC');
-    if (!COUNTIES.includes(county) || rows[county]) continue;
-    rows[county] = m[2].trim().split(/\s+/).map((t) => (t === '-' ? 0 : Number(t.replace(/,/g, ''))));
-    if (Object.keys(rows).length === COUNTIES.length) return rows;
-  }
-  throw new Error(`「${title}」只讀到 ${Object.keys(rows).length} 個縣市`);
-}
-
-const inst = table('表20醫療院所家數');
-const beds = table('表24醫療院所病床數');
-const staff = table('表28醫療院所執業醫事人員數'); // [年底人口, 醫事人員合計, 西醫師, 中醫師, 牙醫師, …]
-const mohw = { category: '醫療', period: MOHW_YEAR, source: '衛福部醫事機構服務量統計年報', url: MOHW_PDF };
-const medical = [
-  ['institutions', '醫療院所數', '家', (c) => inst[c][0]],
-  ['hospitals', '醫院數', '家', (c) => inst[c][1]],
-  ['clinics', '診所數', '家', (c) => inst[c][0] - inst[c][1]],
-  ['beds', '病床數', '床', (c) => beds[c][0]],
-  ['physicians', '西醫師數', '人', (c) => staff[c][2]],
-  ['doctors_all', '醫師數（西醫＋中醫＋牙醫）', '人', (c) => staff[c][2] + staff[c][3] + staff[c][4]],
-];
-const pop = (c) => staff[c][0];
-const totalPop = COUNTIES.reduce((s, c) => s + pop(c), 0);
-for (const [key, label, unit, value] of medical) {
-  fields.push({ key, label, unit, ...mohw });
-  for (const c of COUNTIES) items[c][key] = value(c);
-}
-// 每萬人比率用年報自己的年底人口（跟網站其他指標的人口月份不同，分子分母同一時點才對）
-for (const [key, label, unit, value] of medical.filter(([k]) => k !== 'hospitals' && k !== 'clinics')) {
-  const total = COUNTIES.reduce((s, c) => s + value(c), 0);
-  fields.push({ key: `${key}_per10k`, label: `每萬人${label.replace(/數/, '')}`, unit: `${unit}／萬人`, digits: 1, ...mohw, national: per10k(total, totalPop) });
-  for (const c of COUNTIES) items[c][`${key}_per10k`] = per10k(value(c), pop(c));
-}
-
-/* ---------- 房價、成交量（實價登錄） ---------- */
-
-const PING = 3.305785; // 1 坪 = 3.305785 m²
-const prices = Object.fromEntries(COUNTIES.map((c) => [c, []]));
-const totals = Object.fromEntries(COUNTIES.map((c) => [c, []])); // 住宅成交總價（元），算房價所得比
-const deals = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
-for (const season of SEASONS) {
-  const zip = await download(`https://plvr.land.moi.gov.tw/DownloadSeason?season=${season}&type=zip&fileName=lvr_landcsv.zip`, `${season}.zip`);
-  for (const [code, county] of Object.entries(LVR)) {
-    let csv;
-    try {
-      csv = execFileSync('unzip', ['-p', zip, `${code}_lvr_land_a.csv`], { maxBuffer: 1 << 28 }).toString();
-    } catch {
-      continue; // 該季該縣市沒有檔案
-    }
-    const [header, , ...rows] = csv.replace(/^﻿/, '').split(/\r?\n/).filter(Boolean); // 第二列是英文欄名
-    const col = Object.fromEntries(header.split(',').map((h, i) => [h, i]));
-    for (const row of rows) {
-      const r = row.split(','); // ponytail: 實價登錄 CSV 沒有引號欄位，直接切逗號；哪天出現引號再換 parser
-      if (!r[col['交易標的']]?.includes('建物')) continue; // 只算有房子的買賣（排除純土地、純車位）
-      deals[county] += 1;
-      const unitPrice = Number(r[col['單價元平方公尺']]);
-      // 房價只看住宅、排除親友或特殊關係等異常交易
-      if (r[col['主要用途']] !== '住家用' || !(unitPrice > 0) || /親友|特殊|員工|瑕疵|急買急賣|毛胚/.test(r[col['備註']])) continue;
-      prices[county].push((unitPrice * PING) / 10000);
-      totals[county].push(Number(r[col['總價元']]));
-    }
-  }
-}
-const median = (xs) => {
-  const s = [...xs].sort((a, b) => a - b);
-  return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null;
-};
-const lvr = { category: '房價', period: `近四季申報：${SEASONS.map((x) => `${x.slice(0, 3)} 年 Q${x.at(-1)}`).filter((_, i, a) => !i || i === a.length - 1).join('–')}`, source: '內政部實價登錄', url: 'https://plvr.land.moi.gov.tw/DownloadOpenData' };
-fields.push(
-  { key: 'house_price', label: '住宅成交單價中位數', unit: '萬元／坪', digits: 1, ...lvr, national: round(median(Object.values(prices).flat())) },
-  { key: 'house_deals', label: '房屋買賣件數', unit: '件', ...lvr },
-  { key: 'house_deals_per10k', label: '每萬人房屋買賣件數', unit: '件／萬人', digits: 1, ...lvr, national: per10k(Object.values(deals).reduce((s, n) => s + n, 0), totalPop) },
-);
-for (const c of COUNTIES) {
-  const m = median(prices[c]);
-  items[c].house_price = m === null ? null : round(m);
-  items[c].house_deals = deals[c];
-  items[c].house_deals_per10k = per10k(deals[c], pop(c));
-}
-
-/* ---------- 農地（農業部） ---------- */
-
-const farm = await (await fetchRetry(FARM)).json();
-const year = Math.max(...farm.map((r) => Number(r.year)));
-// cultivated_area 其實是「耕地佔土地面積 %」，公頃數要把五類加總（台中 112 年 ≈ 47,520 公頃，與市府年報相符）
-const PARTS = ['rice', 'short_norice', 'short_leisure', 'long_farm', 'long_leisure'];
-const moa = { category: '農業', period: `${year} 年`, source: '農業部農耕土地面積', url: 'https://data.gov.tw/dataset/94988' };
-fields.push(
-  { key: 'farmland', label: '耕地面積', unit: '公頃', ...moa },
-  { key: 'farmland_ratio', label: '耕地佔土地面積比率', unit: '%', ...moa },
-);
-for (const r of farm.filter((r) => Number(r.year) === year)) {
-  const county = MOA[r.county_code];
-  if (!county) continue; // 「台灣省」小計
-  const ha = Math.round(PARTS.reduce((s, k) => s + Number(r[k]), 0));
-  // 連江縣各欄全是 0：比較像沒填報，當作無資料，不要在排行榜墊底
-  items[county].farmland = ha || null;
-  items[county].farmland_ratio = ha ? Number(r.cultivated_area) : null;
-}
-
+export async function collect({ items, fields, tmp, download, shared }) {
+  // 房價模組掛掉時不要讓整個 legacy 跟著爆：所得那幾欄就是 null
+  const totals = shared['house-price']?.totals ?? Object.fromEntries(COUNTIES.map((c) => [c, []]));
+  // 房價的期間說明（「近四季申報：…」）在房價模組裡算，這裡直接用
+  const lvr = shared['house-price']?.meta ?? { period: '房價資料缺少', source: '內政部實價登錄', url: 'https://plvr.land.moi.gov.tw/DownloadOpenData' };
 /* ---------- 人口結構、出生死亡（戶政司，kiang/data.moi.gov.tw 轉存）、新住民（移民署） ---------- */
 
 const KIANG = 'https://raw.githubusercontent.com/kiang/data.moi.gov.tw/master/raw';
