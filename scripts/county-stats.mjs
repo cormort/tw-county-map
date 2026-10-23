@@ -25,6 +25,30 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * 抓網址：3 次、退避 2／5／10 秒、每次 30 秒上限。
+ *
+ * 2026-10-23 10:30 那次就是死在這裡：`stats.moe.gov.tw` 連線 10 秒逾時（Node fetch 的預設值），
+ * 一支來源掛掉，整個腳本從頭中止，80 個指標一個都沒寫出來、全部沿用舊檔。
+ * 這種「抖一下」的重試一次就好了，不該讓整天資料停在舊版。
+ */
+async function fetchRetry(url, { retries = 3, timeoutMs = 30_000, label = '' } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      return await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    } catch (error) {
+      lastError = error;
+      const wait = [0, 2000, 5000, 10_000][attempt] ?? 10_000;
+      const why = error?.cause?.code ?? error?.name ?? String(error);
+      const where = label || String(url).replace(/^https?:\/\//, '').split(/[/?]/)[0];
+      console.warn(`[fetch] ${where} 第 ${attempt}/${retries} 次失敗（${why}）${attempt < retries ? `，${wait / 1000} 秒後重試` : ''}`);
+      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
+  throw lastError;
+}
+
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'data', 'county-stats.json');
 const TRENDS_OUT = join(dirname(OUT), 'county-trends.json');
 const MOHW_PDF = 'https://www.mohw.gov.tw/dl-97890-29ae7106-ef97-442e-b3ff-9a8eb164f7a6.html';
@@ -53,7 +77,7 @@ async function download(url, name) {
   // 政府網站大檔偶爾會下載到一半被斷線（serv.gcis.nat.gov.tw 實測過），重試 3 次
   for (let attempt = 1; ; attempt++) {
     try {
-      const res = await fetch(url);
+      const res = await fetchRetry(url);
       if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
       const path = join(tmp, name);
       await writeFile(path, Buffer.from(await res.arrayBuffer()));
@@ -160,7 +184,7 @@ for (const c of COUNTIES) {
 
 /* ---------- 農地（農業部） ---------- */
 
-const farm = await (await fetch(FARM)).json();
+const farm = await (await fetchRetry(FARM)).json();
 const year = Math.max(...farm.map((r) => Number(r.year)));
 // cultivated_area 其實是「耕地佔土地面積 %」，公頃數要把五類加總（台中 112 年 ≈ 47,520 公頃，與市府年報相符）
 const PARTS = ['rice', 'short_norice', 'short_leisure', 'long_farm', 'long_leisure'];
@@ -183,7 +207,7 @@ for (const r of farm.filter((r) => Number(r.year) === year)) {
 const KIANG = 'https://raw.githubusercontent.com/kiang/data.moi.gov.tw/master/raw';
 /** 讀 kiang 轉存的村里 CSV，依「區域別」前三字加總到縣市；回傳 縣市 → 欄名 → 合計 */
 async function villageCsv(kind, ym) {
-  const res = await fetch(`${KIANG}/${kind}/${ym}/data.csv`);
+  const res = await fetchRetry(`${KIANG}/${kind}/${ym}/data.csv`);
   if (!res.ok) return null;
   const [header, ...rows] = (await res.text()).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
   // 2024 年中以前的檔案是英文欄名（birth_total、people_age_000_m…），統一成中文
@@ -284,7 +308,7 @@ for (const c of COUNTIES) {
 // 新住民（外籍配偶＋大陸港澳配偶，累計人數）：內政部統計查詢網，查本月會回最新一個月（通常落後兩個月）
 const now = new Date();
 const rocYm = `${now.getUTCFullYear() - 1911}${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-const spouseCsv = await (await fetch(`https://statis.moi.gov.tw/micst/webMain.aspx?sys=220&kind=21&type=1&funid=c0930301&cycle=41&outmode=12&utf=1&compmode=0&outkind=3&fldspc=0,12,&codspc0=0,2,3,2,6,1,9,1,12,1,15,17,&codlst1=111&ym=${rocYm}&ymt=${rocYm}`)).text();
+const spouseCsv = await (await fetchRetry(`https://statis.moi.gov.tw/micst/webMain.aspx?sys=220&kind=21&type=1&funid=c0930301&cycle=41&outmode=12&utf=1&compmode=0&outkind=3&fldspc=0,12,&codspc0=0,2,3,2,6,1,9,1,12,1,15,17,&codlst1=111&ym=${rocYm}&ymt=${rocYm}`)).text();
 let spousePeriod = '';
 for (const line of spouseCsv.split(/\r?\n/)) {
   // "115年 (8~8月)/ 新北市/ 性別總計",總計,外籍配偶,越南,…,大陸配偶,港澳配偶
@@ -347,7 +371,7 @@ for (const c of COUNTIES) {
 
 /* ---------- 長照（衛福部長照 ABC 據點，每日更新） ---------- */
 
-const ltcCsv = await (await fetch('https://ltcpap.mohw.gov.tw/publish/abc.csv')).text();
+const ltcCsv = await (await fetchRetry('https://ltcpap.mohw.gov.tw/publish/abc.csv')).text();
 const ltc = Object.fromEntries(COUNTIES.map((c) => [c, new Set()]));
 for (const line of ltcCsv.split(/\r?\n/).slice(1)) {
   // "機構名稱","機構代碼","機構種類","縣市代碼",…,"O_ABC"：同一機構每個特約服務各一列，用機構代碼去重。
@@ -371,7 +395,7 @@ for (const c of COUNTIES) {
 
 /* ---------- 所得、失業率（主計總處）；ws.dgbas.gov.tw 的憑證鏈缺中繼憑證，自己補上 ---------- */
 
-const twcaDer = Buffer.from(await (await fetch('http://sslserver.twca.com.tw/cacert/Cyber_SSL_2023.crt')).arrayBuffer());
+const twcaDer = Buffer.from(await (await fetchRetry('http://sslserver.twca.com.tw/cacert/Cyber_SSL_2023.crt')).arrayBuffer());
 const twcaPem = `-----BEGIN CERTIFICATE-----\n${twcaDer.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`;
 const fetchDgbas = (url) => new Promise((resolve, reject) => {
   httpsGet(url, { ca: [...rootCertificates, twcaPem] }, (res) => {
@@ -417,7 +441,7 @@ for (const c of COUNTIES) items[c].unemployment = unempLatest.values[c] ?? null;
 /* ---------- 財政：歲入、歲出決算（國發會彙編）、公共債務（國庫署） ---------- */
 
 const ndcCsv = async (url) => {
-  const [header, ...rows] = (await (await fetch(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
+  const [header, ...rows] = (await (await fetchRetry(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
   return rows.map((r) => Object.fromEntries(header.map((h, i) => [h, r[i]])));
 };
 const rev = await ndcCsv('https://ws.ndc.gov.tw/Download.ashx?u=LzAwMS9hZG1pbmlzdHJhdG9yLzEwL3JlbGZpbGUvNTc4MS82Mzk2LzYxMTFhZDNmLTZkMmUtNGUxMC05OGRlLTQzNGE0YzgxM2U4My5jc3Y%3d&n=OC0xIOatsuWFpS5jc3Y%3d&icon=.csv');
@@ -439,7 +463,7 @@ for (const c of COUNTIES) {
   items[c].expenditure_per_capita = Math.round((Number(expOf(c)['合計實數']) * 1e6) / total(c));
 }
 // 公共債務（1 年以上＋未滿 1 年，百萬元）；比率欄直轄市與縣市分母不同（GDP vs 歲出），只取金額換算每人負債
-const debtRows = (await (await fetch('https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv')).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
+const debtRows = (await (await fetchRetry('https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv')).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map((l) => l.split(','));
 const debtYears = [...new Set(debtRows.slice(1).map((r) => r[0]))].sort();
 const debtOf = (year, c) => { const r = debtRows.find((x) => x[0] === year && x[1] === c); return r ? Number(r[6]) : null; };
 const debtYear = debtYears.at(-1);
@@ -456,7 +480,7 @@ trends.debt = { label: '公共債務餘額', unit: '百萬元', points: debtYear
 
 /* ---------- 用電量：台電各縣市住宅、服務業及機關用電統計（每月，2016 起；四類加總＝總用電） ---------- */
 
-const elecCsv = (await (await fetch('https://service.taipower.com.tw/data/opendata/apply/file/d007012/001.csv')).text()).replace(/^﻿/, '');
+const elecCsv = (await (await fetchRetry('https://service.taipower.com.tw/data/opendata/apply/file/d007012/001.csv')).text()).replace(/^﻿/, '');
 // 售電量有千分位逗號與引號（"636,471,432"），不能直接切逗號
 const elecRows = elecCsv.split(/\r?\n/).slice(1).map((l) => [...l.matchAll(/("([^"]*)"|[^,]*)(,|$)/g)].map((m) => m[2] ?? m[1])).filter((r) => /^\d{5}$/.test(r[0]));
 const elec = new Map(); // 'YYYMM' → 縣市 → { 用電性質: 度 }
@@ -505,7 +529,7 @@ trends.electricity = { label: '總用電量（百萬度）', unit: '百萬度', 
 
 /** data.gov.tw 資料集的最新一份資源（依說明或網址排序取最後；pick 可篩格式） */
 async function latestResource(id, pick = () => true) {
-  const r = (await (await fetch(`https://data.gov.tw/api/v2/rest/dataset/${id}`)).json()).result;
+  const r = (await (await fetchRetry(`https://data.gov.tw/api/v2/rest/dataset/${id}`)).json()).result;
   const list = r.distribution.filter(pick).sort((a, b) => `${a.resourceDescription}${a.resourceDownloadUrl}`.localeCompare(`${b.resourceDescription}${b.resourceDownloadUrl}`));
   return list.at(-1);
 }
@@ -516,7 +540,7 @@ const normCounty = (name) => name.replace(/^\[\d+\]/, '').replace(/台/g, '臺')
 // 公司、商業登記（商工行政資料開放平臺，每月）：縣市列前面有縮排空白
 async function gcisCounts(id) {
   const res = await latestResource(id, (d) => d.resourceFormat === 'CSV');
-  const rows = (await (await fetch(res.resourceDownloadUrl)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
+  const rows = (await (await fetchRetry(res.resourceDownloadUrl)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
   const out = {};
   for (const r of rows.slice(1)) { const c = normCounty(r[0]); if (items[c]) out[c] = { count: Number(r[1]), capital: Number(r[2]) }; }
   return { period: res.resourceDescription.replace(/年|月/g, (m) => (m === '年' ? '-' : '')), out };
@@ -540,7 +564,7 @@ for (const c of COUNTIES) {
 }
 
 // 生產中工廠（產業發展署登記工廠名錄；索引 CSV 指向每月更新的 zip）
-const factoryIndex = (await (await fetch('https://www.ida.gov.tw/opendata/02/SDD6569.csv')).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
+const factoryIndex = (await (await fetchRetry('https://www.ida.gov.tw/opendata/02/SDD6569.csv')).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
 const factoryZip = await download(factoryIndex.at(-1).at(-1), 'factory.zip');
 const factoryEntry = execFileSync('unzip', ['-Z1', factoryZip]).toString().trim().split('\n')[0]; // 例如 11509.csv
 const factories = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
@@ -561,9 +585,9 @@ for (const c of COUNTIES) { items[c].factories = factories[c]; items[c].factorie
 
 // 勞保投保人數（勞保局，依投保單位所在地）；地區別代碼用同一資料集的官方「代號對照表」（23＝金門、24＝連江、25＝新竹市、26＝嘉義市）
 const laborCodes = await latestResource(100999, (d) => d.resourceFormat === 'JSON' && d.resourceDescription === '代號對照表');
-const LABOR = Object.fromEntries((await (await fetch(laborCodes.resourceDownloadUrl)).json()).filter((r) => r['統計項目'] === '地區別').map((r) => [r['代號'], normCounty(r['對照中文名稱'])]));
+const LABOR = Object.fromEntries((await (await fetchRetry(laborCodes.resourceDownloadUrl)).json()).filter((r) => r['統計項目'] === '地區別').map((r) => [r['代號'], normCounty(r['對照中文名稱'])]));
 const laborRes = await latestResource(100999, (d) => d.resourceFormat === 'JSON' && /^\d+年統計資料/.test(d.resourceDescription));
-const laborRows = await (await fetch(laborRes.resourceDownloadUrl)).json();
+const laborRows = await (await fetchRetry(laborRes.resourceDownloadUrl)).json();
 const laborYm = laborRows.reduce((m, r) => (r['資料年月'] > m ? r['資料年月'] : m), '');
 const labor = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
 for (const r of laborRows) if (r['資料年月'] === laborYm && LABOR[r['地區別']]) labor[LABOR[r['地區別']]] += Number(r['本月底投保人數']);
@@ -576,7 +600,7 @@ fields.push(
 for (const c of COUNTIES) { items[c].labor_insured = labor[c]; items[c].labor_insured_per1000 = perMille(labor[c], total(c)); }
 
 // 國民年金被保險人數（勞保局，國民年金監理會每月 PDF「按身分別及地區分」，地區依戶籍）
-const npList = await (await fetch('https://dep.mohw.gov.tw/NPSC/lp-5387-118-1-20.html')).text();
+const npList = await (await fetchRetry('https://dep.mohw.gov.tw/NPSC/lp-5387-118-1-20.html')).text();
 const npLink = npList.match(/(dl-\d+-[0-9a-f-]+\.html)" title="(\d+)年(\d+)月-pdf/);
 if (!npLink) throw new Error('國民年金監理會的列表頁格式變了，找不到最新月份的 PDF');
 const npPdf = await download(`https://dep.mohw.gov.tw/NPSC/${npLink[1]}`, 'national-pension.pdf');
@@ -598,7 +622,7 @@ for (const c of COUNTIES) { items[c].national_pension = npRows[c]; items[c].nati
 
 // 全民健保：全國設籍人口參加健保人數（健保署，每年；縣市×鄉鎮×性別×年齡），參加率的分母用同月戶籍人口
 const nhiRes = await latestResource(37276, (d) => d.resourceFormat === 'CSV');
-const nhiLines = (await (await fetch(nhiRes.resourceDownloadUrl)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean);
+const nhiLines = (await (await fetchRetry(nhiRes.resourceDownloadUrl)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean);
 const nhi = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
 let nhiYm = '';
 for (const l of nhiLines.slice(1)) {
@@ -637,7 +661,7 @@ for (const c of COUNTIES) { items[c].indigenous = indigenous[c]; items[c].indige
 
 // 學校數（教育部統計處各級學校名錄；多學年度合在一個檔的只取最新學年度）
 async function schoolCount(url) {
-  const rows = (await (await fetch(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
+  const rows = (await (await fetchRetry(url)).text()).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean).map(csvLine);
   const col = rows[0].indexOf('縣市名稱');
   const year = rows.slice(1).reduce((m, r) => Math.max(m, Number(r[0]) || 0), 0);
   const out = Object.fromEntries(COUNTIES.map((c) => [c, 0]));

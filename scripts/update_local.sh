@@ -88,11 +88,22 @@ if [[ ! -d node_modules || package-lock.json -nt node_modules/.package-lock.json
 fi
 
 node scripts/snapshot.mjs
-# 16 government sites: one bad day should not block the election snapshot
+# 16 government sites: one bad day should not block the election snapshot.
+# 2026-10-23：教育部統計處連線逾時，整份 80 個指標沿用舊檔。抖一下就整天不更新太虧，
+# 所以失敗先等 5 分鐘再試一次（腳本內部已有逐請求 3 次重試，這一層擋的是「對方主機短暫維修」）。
 if ! node scripts/county-stats.mjs; then
-    echo "county-stats.mjs failed; keeping the previous county-stats / county-trends."
-    git checkout -q -- public/data/county-stats.json public/data/county-trends.json
-    notify "⚠️ county-stats.mjs 失敗，醫療、房價等統計沿用舊資料；選舉快照照常更新。紀錄：$LOG"
+    echo "county-stats.mjs failed once; retrying in 5 minutes..."
+    sleep 300
+    if ! node scripts/county-stats.mjs; then
+        echo "county-stats.mjs failed twice; keeping the previous county-stats / county-trends."
+        git checkout -q -- public/data/county-stats.json public/data/county-trends.json
+        # 通知要能直接看出是哪個來源壞了，不然還要自己去翻 log
+        REASON="$(grep -aoE 'attempted address: [^,)]+|\{fetch\} [^ ]+ 第 [0-9]+/[0-9]+ 次失敗' "$LOG" 2>/dev/null | tail -1)"
+        notify "⚠️ county-stats.mjs 連兩次失敗${REASON:+（$REASON）}，醫療、房價等統計沿用舊資料；選舉快照照常更新。紀錄：$LOG"
+    else
+        echo "county-stats.mjs succeeded on the second attempt."
+        notify "✅ county-stats.mjs 第一次失敗、重試後成功（資料已更新）"
+    fi
 fi
 
 npm run build --silent  # a broken snapshot must not reach the site
