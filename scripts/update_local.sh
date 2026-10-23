@@ -105,6 +105,11 @@ if ! node scripts/county-stats.mjs; then
         notify "✅ county-stats.mjs 第一次失敗、重試後成功（資料已更新）"
     fi
 fi
+# 有來源改用快取時還是要更新（其他來源是新的），但不能安靜地當成全部都是新的
+STALE_LINE="$(grep -a '^\[stale\] [0-9]' "$LOG" 2>/dev/null | tail -1 || true)"
+if [[ -n "$STALE_LINE" ]]; then
+    notify "⚠️ 縣市統計有來源抓不到，已改用該來源的快取（其他來源照常更新）：${STALE_LINE#\[stale\] }"
+fi
 
 npm run build --silent  # a broken snapshot must not reach the site
 git checkout -q -- tsconfig.tsbuildinfo 2>/dev/null || true
