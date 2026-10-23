@@ -94,9 +94,9 @@ function Scatter({ rows, county, color, onHover }: { rows: Row[]; county: string
  * 分裂投票：同一天投票的區域立委、總統、不分區政黨票，比較同一政黨在各立委選區的三種得票率。
  * 區域−總統 > 0：選民投給該黨立委、但總統票流向他黨（或立委個人吸票）。
  */
-export function SplitTicket({ refreshToken, county }: { refreshToken: number; county: string | null }) {
+export function SplitTicket({ county }: { county: string | null }) {
   const [year, setYear] = useState<number | null>(null);
-  const res = useApi<SplitTicketResponse>(buildUrl('/split-ticket', { year: year ?? undefined }), { refreshToken });
+  const res = useApi<SplitTicketResponse>(buildUrl('/split-ticket', { year: year ?? undefined }));
   const [partyChoice, setParty] = useState('民主進步黨');
   const [scope, setScope] = useState<'all' | 'county'>(county ? 'county' : 'all');
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'cand_pres', desc: true });

@@ -91,8 +91,8 @@ function IndexChart({ months, series }: { months: string[]; series: { name: stri
  * 人口趨勢：2016 年 1 月起每月縣市人口、每年 12 月年齡結構（20 歲以上、65 歲以上、0–14 歲），
  * 各縣市進入超高齡（65 歲以上 ≥ 20%）的年份，以及各鄉鎮的人口增減。
  */
-export function PopulationTrend({ refreshToken, counties, selected, onSelect }: { refreshToken: number; counties: CountiesResponse; selected: string | null; onSelect: (county: string) => void }) {
-  const res = useApi<PopulationTrendResponse>(buildUrl('/population-trend'), { refreshToken });
+export function PopulationTrend({ counties, selected, onSelect }: { counties: CountiesResponse; selected: string | null; onSelect: (county: string) => void }) {
+  const res = useApi<PopulationTrendResponse>(buildUrl('/population-trend'));
   const [metric, setMetric] = useState<Metric>('population');
   const [fromChoice, setFrom] = useState('2016');
 
