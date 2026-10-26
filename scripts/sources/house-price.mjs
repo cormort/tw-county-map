@@ -5,9 +5,11 @@
  * `shared.totals` 是各縣市住宅成交總價、`shared.meta` 是欄位共用的期間／來源說明，
  * 房價所得比（所得模組）兩者都要用。
  */
-import { execFileSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import { COUNTIES, LVR, median, per10k, round } from '../lib/county.mjs';
+import { extractZip } from '../lib/download.mjs';
 
 export const id = 'house-price';
 export const name = '房價、成交量（實價登錄）';
@@ -43,17 +45,20 @@ export function parseLvrRows(csv, { ping = PING } = {}) {
   return out;
 }
 
-export async function collect({ items, fields, download, shared }) {
+export async function collect({ items, fields, download, shared, tmp }) {
   const { pop, totalPop } = shared.medical;
   const prices = Object.fromEntries(COUNTIES.map((c) => [c, []]));
   const totals = Object.fromEntries(COUNTIES.map((c) => [c, []])); // 住宅成交總價（元），算房價所得比
   const deals = Object.fromEntries(COUNTIES.map((c) => [c, 0]));
   for (const season of SEASONS) {
     const zip = await download(`https://plvr.land.moi.gov.tw/DownloadSeason?season=${season}&type=zip&fileName=lvr_landcsv.zip`, `${season}.zip`);
+    // 整季解到暫存目錄再一次讀，不要用 `unzip -p` 接 stdout（Windows 沙箱環境 spawn 管線會 EPERM）
+    const seasonDir = join(tmp, `lvr-${season}`);
+    await extractZip(zip, seasonDir);
     for (const [code, county] of Object.entries(LVR)) {
       let csv;
       try {
-        csv = execFileSync('unzip', ['-p', zip, `${code}_lvr_land_a.csv`], { maxBuffer: 1 << 28 }).toString();
+        csv = await readFile(join(seasonDir, `${code}_lvr_land_a.csv`), 'utf8');
       } catch {
         continue; // 該季該縣市沒有檔案
       }

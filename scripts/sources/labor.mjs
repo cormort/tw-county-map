@@ -6,6 +6,7 @@
 import { COUNTIES, normCounty, perMille } from '../lib/county.mjs';
 import { fetchRetry } from '../lib/fetch-cache.mjs';
 import { latestResource } from '../lib/datagov.mjs';
+import { populationAt } from '../lib/population-history.mjs';
 
 export const id = 'labor';
 export const name = '勞保投保人數（勞保局）';
@@ -29,7 +30,7 @@ export function parseLaborRows(rows, laborCodeToCounty) {
 }
 
 export async function collect({ items, fields, download, shared }) {
-  const { total, allTotal, sumAll } = shared.population;
+  const { total, sumAll } = shared.population;
   // 勞保投保人數（勞保局，依投保單位所在地）；地區別代碼用同一資料集的官方「代號對照表」（23＝金門、24＝連江、25＝新竹市、26＝嘉義市）
   const laborCodes = await latestResource(100999, (d) => d.resourceFormat === 'JSON' && d.resourceDescription === '代號對照表');
   const LABOR = Object.fromEntries((await (await fetchRetry(laborCodes.resourceDownloadUrl)).json()).filter((r) => r['統計項目'] === '地區別').map((r) => [r['代號'], normCounty(r['對照中文名稱'])]));
@@ -37,8 +38,10 @@ export async function collect({ items, fields, download, shared }) {
   const laborRows = await (await fetchRetry(laborRes.resourceDownloadUrl)).json();
   const { ym: laborYm, out: labor } = parseLaborRows(laborRows, LABOR);
   const laborMeta = { category: '產業', period: `${Number(laborYm.slice(0, 3)) + 1911}-${laborYm.slice(3)} 月底`, source: '勞動部勞工保險局投保單位、人數原始統計', url: 'https://data.gov.tw/dataset/100999' };
+  // 分母用同月戶籍人口（勞保資料 2025-12，就用 2025-12 人口），不是 2026-09 的最新月人口
+  const laborPop = await populationAt(`${Number(laborYm.slice(0, 3)) + 1911}-${laborYm.slice(3)}`);
   fields.push(
     { key: 'labor_insured', label: '勞保投保人數（依投保單位所在地）', unit: '人', ...laborMeta },
-    { key: 'labor_insured_per1000', label: '每千人勞保投保人數', unit: '人／千人', digits: 1, ...laborMeta, national: perMille(sumAll((c) => labor[c]), allTotal) },
+    { key: 'labor_insured_per1000', label: '每千人勞保投保人數', unit: '人／千人', digits: 1, ...laborMeta, national: perMille(sumAll((c) => labor[c]), sumAll((c) => laborPop[c])) },
   );
-  for (const c of COUNTIES) { items[c].labor_insured = labor[c]; items[c].labor_insured_per1000 = perMille(labor[c], total(c)); }}
+  for (const c of COUNTIES) { items[c].labor_insured = labor[c]; items[c].labor_insured_per1000 = perMille(labor[c], laborPop[c] ?? total(c)); }}

@@ -44,7 +44,7 @@ export async function collect(ctx) {
 3. 寫出 `public/data/county-stats.json`（`meta.sources` 記錄每個來源的狀態）
 4. 有來源改用快取時印 `[stale]`，排程腳本會轉成通知
 
-## 現有模組（17 個）
+## 現有模組（22 個）
 
 | 模組 | 內容 | 依賴 |
 | --- | --- | --- |
@@ -55,8 +55,13 @@ export async function collect(ctx) {
 | `population-change` | 人口增減、淨遷入、高齡化速度、扶老扶幼比 | population |
 | `care` | 長照 ABC 據點 | population |
 | `income` | 所得、失業率、房價所得比 | population, house-price |
+| `tax-income` | 綜所稅申報與稅額（財資中心 PDF） | — |
 | `fiscal` | 歲入歲出決算、公共債務 | population |
+| `local-tax` | 地方稅實徵淨額（財政部統計月報 PDF） | population |
 | `electricity` | 台電縣市別用電 | population |
+| `solar` | 太陽光電、再生能源容量與購電量 | population |
+| `environment` | 垃圾、污水處理、空氣品質 | population |
+| `vehicles` | 車輛數、公共充電樁（國發會＋TDX） | population |
 | `business` | 公司、商業登記 | population |
 | `factories` | 產發署登記工廠名錄（zip） | population |
 | `labor` | 勞保投保人數 | population |

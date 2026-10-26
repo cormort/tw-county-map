@@ -1,6 +1,9 @@
 /**
  * 車輛數與交通費用（國發會都市及區域發展統計彙編 6-3-2，源自交通部統計處），
  * 以及公共充電樁與充電站設施（交通部運輸資料流通服務 TDX）。
+ *
+ * TDX 的 ConnectCounts（槍數）常有站點沒填報，逐站用 ConnectorCount 加總補，
+ * 並保證槍數不低於樁數；樁數（ChargingCounts）才是比率指標的分子。
  */
 import { COUNTIES, round } from '../lib/county.mjs';
 import { fetchRetry } from '../lib/fetch-cache.mjs';
@@ -61,6 +64,38 @@ const ENTITY_TO_COUNTY = {
   LIE: '連江縣',
 };
 
+/**
+ * TDX 的「縣市×營運商」統計 → 各縣市站數、樁數、槍數。
+ *
+ * TDX 的 Item.ConnectCounts 常整批缺漏（臺中市多數站填 0，直接加總只剩 254 槍，比 1,421 樁還少），
+ * 所以槍數逐站算：站內 ConnectorCount 加總（沒填 ConnectorCount 就用 ConnectorDetailList 筆數），
+ * 再跟站上報的 ConnectCounts、樁數取最大值 —— 至少 1 樁 1 槍，缺報不會讓槍數低於樁數。
+ */
+export function sumEvCounts(entries) {
+  const out = Object.fromEntries(COUNTIES.map((c) => [c, { stations: 0, points: 0, plugs: 0 }]));
+  for (const entry of entries ?? []) {
+    const county = ENTITY_TO_COUNTY[entry.EntityCode];
+    if (!county || !out[county]) continue;
+    const item = entry.Item || {};
+    if (!Array.isArray(item.StationDetailList)) {
+      const points = item.ChargingCounts || 0;
+      out[county].stations += item.StationCounts || 0;
+      out[county].points += points;
+      out[county].plugs += Math.max(item.ConnectCounts || 0, points);
+      continue;
+    }
+    for (const station of item.StationDetailList) {
+      const pointList = station.ChargingPointDetailList ?? [];
+      const points = station.ChargingPointCount ?? pointList.length;
+      const connectors = pointList.reduce((n, p) => n + (p.ConnectorCount || p.ConnectorDetailList?.length || 0), 0);
+      out[county].stations += 1;
+      out[county].points += points;
+      out[county].plugs += Math.max(station.ConnectCounts || 0, connectors, points);
+    }
+  }
+  return out;
+}
+
 export async function collect({ items, fields, shared }) {
   const { total, allTotal, sumAll } = shared.population;
   const text = await (await fetchRetry(NDC_VEHICLES_CSV, { label: '國發會車輛數' })).text();
@@ -89,15 +124,7 @@ export async function collect({ items, fields, shared }) {
     console.warn('[vehicles] 抓取 TDX 充電樁失敗：', err?.message || err);
   }
 
-  const evByCounty = Object.fromEntries(COUNTIES.map((c) => [c, { stations: 0, points: 0, plugs: 0 }]));
-  for (const it of evCounts) {
-    const c = ENTITY_TO_COUNTY[it.EntityCode];
-    if (!c || !evByCounty[c]) continue;
-    const item = it.Item || {};
-    evByCounty[c].stations += item.StationCounts || 0;
-    evByCounty[c].points += item.ChargingCounts || 0;
-    evByCounty[c].plugs += item.ConnectCounts || 0;
-  }
+  const evByCounty = sumEvCounts(evCounts);
 
   const nationalPoints = sumAll((c) => evByCounty[c].points);
   const nationalStations = sumAll((c) => evByCounty[c].stations);
