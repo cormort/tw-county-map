@@ -10,7 +10,7 @@
 | A. 立委觀測站快照 | `node scripts/snapshot.mjs`（要先跑起 ly-dashboard 的 API） | `counties.json`、`demographics.json`、`population-trend.json`、`town-map.json`、`legislator-votes.json`、`split-ticket*.json`、`council-*.json`、`_snapshot.json` |
 | B. 政府開放資料 | `node scripts/county-stats.mjs`（直接抓，需要 `pdftotext`、`unzip`） | `county-stats.json`、`county-trends.json` |
 
-下表的「目前資料期」是 2026-10-20 產生時抓到的期別。
+下表的「目前資料期」是 2026-10-26 產生時抓到的期別。
 
 ---
 
@@ -29,7 +29,7 @@
 | 每萬人比率 | 分母用**表 28 的年底人口**（跟分子同一時點），不是網站其他地方用的最新月人口 |
 | 解析方式 | `pdftotext -layout` 轉文字，找表名那一行（略過目錄），逐行讀縣市名稱後面的數字；「-」當 0 |
 | 驗證 | 全國合計：醫療院所 24,268 家、病床 170,659 床、西醫師 55,178 人，應與表 20／24／28 的「總計」列一致 |
-| 更新 | 新年報出來後，改腳本開頭的 `MOHW_PDF`（下載網址）與 `MOHW_YEAR`（例如「114 年底」）。表號若變了，改 `table('表20…')` 那幾行 |
+| 更新 | 新年報出來後，改腳本開頭的 `MOHW_PDF`（下載網址）與 `MOHW_YEAR`（例如「114 年底」）。表號若變了，改 `table('表20…')` 那幾行。**114 年報（2025 年底）只有 ODS／XLSX，沒有 PDF 電子書**，要換年度需另寫 xlsx／ods 解析，目前仍停在 113 年 PDF |
 
 ### 長照：衛福部長照 ABC 據點
 
@@ -87,12 +87,13 @@ curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile
 
 | 項目 | 內容 |
 | --- | --- |
-| 資料 | 112 年度綜合所得稅申報初步核定統計專冊（表 6-1 綜稅所得應納稅額及稅率各縣市申報統計表） |
-| 下載網址 | <https://www.fia.gov.tw/WEB/fia/ias/isa112/112_6-1.pdf>（PDF，使用 `pdftotext -layout` 解析） |
-| 目前資料期 | 112 年度申報核定 |
+| 資料 | 113 年度綜合所得稅申報初步核定統計專冊（表 6-1 綜稅所得應納稅額及稅率各縣市申報統計表） |
+| 下載網址 | <https://www.fia.gov.tw/WEB/fia/ias/isa113s/isa113/113_6-1.pdf>（PDF，使用 `pdftotext -layout` 解析） |
+| 目前資料期 | 113 年度申報核定（2024 年所得） |
 | 涵蓋 | 22 縣市（含金門縣、連江縣，補足家庭收支調查無離島之限制） |
 | 指標 | `tax_filing_units` 綜稅申報戶數、`tax_filing_avg_income` 申報戶平均所得（所得總額 ÷ 申報戶數，元）、`tax_filing_total_income` 綜合所得申報總額（百萬元）、`tax_filing_tax_payable` 綜稅應納稅額（百萬元）、`tax_filing_avg_tax` 申報戶平均應納稅額（元）、`tax_filing_effective_rate` 綜稅有效稅率（%） |
 | 意義 | 課稅申報資料，反映在地報稅戶的綜合所得水準（新竹市、新竹縣與臺北市領先）以及各縣市為國庫貢獻的個人綜合所得稅規模。 |
+| 驗證 | 113 年度全國申報 6,982,335 戶、平均每戶 914,664 元、應納稅額 387,491 百萬元、有效稅率 6.07% |
 | 已知限制 | 僅包含申報課稅之所得（薪資、股利、利息等），未包含政府移轉支出（社會福利補貼）與免稅所得。 |
 
 ### 用電量：台電
@@ -128,7 +129,7 @@ curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile
 | 資料集 | 勞工保險投保單位、人數及平均投保薪資原始統計資料：<https://data.gov.tw/dataset/100999>（勞動部勞工保險局） |
 | 下載 | 每年一份 JSON（`apiservice.mol.gov.tw/OdService/download/…`），內容是各月、各地區別、單位類別、業別的明細；另有「代號對照表」 |
 | 目前資料期 | 民國 114 年 12 月底（取檔內最新的「資料年月」） |
-| 算法 | 同一個月的「本月底投保人數」依地區別加總；地區別代碼用官方代號對照表（23＝金門、24＝連江、25＝新竹市、26＝嘉義市，其餘是內政部縣市代碼後兩碼） |
+| 算法 | 同一個月的「本月底投保人數」依地區別加總；地區別代碼用官方代號對照表（23＝金門、24＝連江、25＝新竹市、26＝嘉義市，其餘是內政部縣市代碼後兩碼）。每千人投保數的分母用**同月戶籍人口**（由 `population-trend.json` 取該月人口），不是最新月人口 |
 | 指標 | `labor_insured`、`labor_insured_per1000` |
 | 已知限制 | **依投保單位（公司、工會）所在地**，不是勞工住在哪裡；臺北市、新竹市這類就業中心會明顯偏高。含職業工會、漁會等投保 |
 | 驗證 | 全國約 1,048 萬人；可對照勞動部統計表 13-10（<https://statdb.mol.gov.tw/html/mon/213100.pdf>） |
@@ -178,14 +179,14 @@ curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile
 
 ### 財政：國發會、國庫署
 
-| 項目 | 歲入、歲出決算、地方稅 | 公共債務 |
+| 項目 | 歲入、歲出決算、稅課收入 | 公共債務 |
 | --- | --- | --- |
 | 資料集 | 8-1 各縣市政府歲入決算數 <https://data.gov.tw/dataset/6518>；8-2 各縣市政府歲出決算數 <https://data.gov.tw/dataset/6519>（國發會「都市及區域發展統計彙編」） | 歷年各級政府債務概況表 <https://data.gov.tw/dataset/25301>（財政部國庫署） |
 | 下載網址 | 見腳本 `ndcCsv(...)` 兩行（`ws.ndc.gov.tw/Download.ashx?...`） | <https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv> |
 | 目前資料期 | 2024 年度決算 | 民國 114 年度（2025） |
 | 單位 | 百萬元 | 百萬元 |
-| 指標 | `own_revenue_ratio` 自有財源占歲入比率 ＝（歲入合計－補助及協助收入）÷ 歲入合計；`expenditure_per_capita` 每人歲出 ＝ 歲出合計 × 10⁶ ÷ 最新月人口；`tax_revenue` 地方稅課收入（百萬元）；`tax_revenue_ratio` 地方稅占歲入比率（%）；`tax_revenue_per_capita` 平均每人地方稅負（元） | `debt` 公共債務餘額（「債務合計」欄：1 年以上＋未滿 1 年）；`debt_per_capita` 每人負債 ＝ 債務 × 10⁶ ÷ 最新月人口 |
-| 已知限制 | 一般常見的「自有財源比率」是以**歲出**為分母，但用這份資料算，臺北市會超過 100%（2024 歲入 2,228 億、歲出 1,587 億），跟官方數字對不起來，所以改用定義明確的「占歲入比率」 | 表內的比率欄，直轄市與縣市的分母不同（GDP 或歲出），所以只用金額 |
+| 指標 | `own_revenue_ratio` 自有財源占歲入比率 ＝（歲入合計－補助及協助收入）÷ 歲入合計；`expenditure_per_capita` 每人歲出 ＝ 歲出合計 × 10⁶ ÷ **2024 年底人口**；`tax_revenue` 歲入稅課收入（含統籌分配稅，百萬元）；`tax_revenue_ratio` 稅課收入占歲入比率（%）；`tax_revenue_per_capita` 平均每人歲入稅課收入（元，÷ 2024 年底人口） | `debt` 公共債務餘額（「債務合計」欄：1 年以上＋未滿 1 年）；`debt_per_capita` 每人負債 ＝ 債務 × 10⁶ ÷ **2025 年底人口** |
+| 已知限制 | 地方歲入的「稅課收入」＝地方稅＋中央統籌分配稅款，**不是純地方稅**（全國約 8,329 億元，純地方稅約 3,900 餘億元）。用「地方稅負」當名字會讓仰賴統籌分配稅的連江縣看起來像全台稅負最重，所以正名為「歲入稅課收入」；要呈現真實地方稅負，需另接財政部各縣市地方稅實徵淨額。每人指標的分母用同年度年底人口（`population-trend.json`），避免用最新月人口高估舊年度。另，一般常見的「自有財源比率」以歲出為分母，用這份資料算臺北市會超過 100%（2024 歲入 2,228 億、歲出 1,587 億），跟官方數字對不起來，所以改用定義明確的「占歲入比率」 | 表內的比率欄，直轄市與縣市的分母不同（GDP 或歲出），所以只用金額 |
 
 ### 交通與充電設施：機動車輛登記數、交通支出與公共充電樁
 
@@ -195,8 +196,9 @@ curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile
 | 下載網址 | 見 `scripts/sources/vehicles.mjs` 中的 `NDC_VEHICLES_CSV` | `https://tdx.transportdata.tw/webapi/EVChargingData/Counts` |
 | 目前資料期 | 2024 年底（汽車、機車）；2024 全年（交通費用） | 2026 年即時統計 |
 | 涵蓋 | 22 縣市（含金門、連江） | 22 縣市及直轄市大眾捷運、公營機場事業 |
-| 指標 | `cars` 汽車登記數、`passenger_cars` 小客車登記數、`motorcycles` 機車登記數、`cars_per1000` 每千人汽車數、`passenger_cars_per1000` 每千人小客車數、`motorcycles_per1000` 每千人機車數、`transport_cost_per_household` 平均每戶全年交通費用 | `ev_charging_points` 公共充電樁數（支）、`ev_charging_stations` 公共充電站數（處）、`ev_charging_plugs` 公共充電槍數（槍）、`ev_charging_per10k_cars` 每萬輛汽車公共充電樁數（支／萬輛汽車）、`ev_charging_per100k_pop` 每十萬人公共充電樁數（支／十萬人） |
-| 驗證 | 全國汽車登記數約 860.6 萬輛、機車約 1,465.6 萬輛；全台地方公共充電樁逾 1.1 萬支（臺北市逾 1,840 支、高雄逾 1,660 支）。 |
+| 算法 | 直接取國發會彙編的登記數與持有率 | 逐站加總：站數＝站點筆數、樁數＝`ChargingPointCount`、槍數＝`max(ConnectCounts, 站內 ConnectorCount 加總, 樁數)`。TDX 的 `ConnectCounts` 常有站點沒填（臺中市多數站為 0，直接加總只剩 254 槍，比 1,421 樁還少），所以沒填時用 ConnectorCount 補，並保證 1 樁至少 1 槍 |
+| 指標 | `cars` 汽車登記數、`passenger_cars` 小客車登記數、`motorcycles` 機車登記數、`cars_per1000` 每千人汽車數、`passenger_cars_per1000` 每千人小客車數、`motorcycles_per1000` 每千人機車數、`transport_cost_per_household` 平均每戶全年交通費用 | `ev_charging_points` 公共充電樁數（支）、`ev_charging_stations` 公共充電站數（處）、`ev_charging_plugs` 公共充電槍數（槍）、`ev_charging_per10k_cars` 每萬輛汽車公共充電樁數（支／萬輛汽車，分子是樁數）、`ev_charging_per100k_pop` 每十萬人公共充電樁數（支／十萬人，分子是樁數） |
+| 驗證 | 全國汽車登記數約 860.6 萬輛、機車約 1,465.6 萬輛；全台公共充電站 3,207 處、充電樁 11,721 支、充電槍 12,699 槍（臺中市 451 站／1,421 樁／1,551 槍，槍數已不再低於樁數）。 |
 
 ### 能源與太陽能：台電各縣市再生能源別購入情形
 
@@ -207,6 +209,7 @@ curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile
 | 目前資料期 | 民國 114 年（2025 年累計躉購裝置容量與發電量） |
 | 涵蓋 | 22 縣市（含澎湖、金門、連江） |
 | 指標 | `solar_capacity` 太陽光電躉購裝置容量（千瓩／MW）、`solar_power` 太陽光電累計購電度數（百萬度）、`solar_count` 太陽光電案場件數（件）、`solar_capacity_per_capita` 每人太陽光電容量（瓦／人）、`renewable_capacity` 再生能源總裝置容量（千瓩／MW）、`renewable_power` 再生能源總購電度數（百萬度）、`solar_share` 太陽光電占再生能源比重（%） |
+| 精度與分母 | 容量保留 2 位小數（連江縣 114 年 70.29 kW＝0.07 千瓩，取整數會變成 0，跟「每人 5.1 瓦、光電占比 100%」矛盾）；購電量保留 1 位小數。每人容量的分母用**同年度年底人口**（2025 年 → 2025-12，由 `population-trend.json` 取），不是最新月人口 |
 | 歷年趨勢 | 提供 2016–2025 年歷年太陽光電及再生能源總裝置容量趨勢序列（`solar_capacity`、`renewable_capacity`）。 |
 | 驗證 | 臺南市太陽光電裝置容量逾 2,787 MW（全國第一）；彰化縣再生能源總裝置容量逾 4,616 MW（含離岸風電與太陽光電，全國第一）。 |
 
@@ -219,6 +222,7 @@ curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile
 | 目前資料期 | 2024 年（垃圾量、回收率、空氣品質 AQI 及 PM2.5）；2024 年底（污水處理率） |
 | 涵蓋 | 22 縣市（含金門、連江） |
 | 指標 | `waste_per_capita_daily` 平均每人每日垃圾產生量（公斤／人-日）、`recycling_rate` 垃圾回收率（%）、`waste_total` 垃圾產生總量（萬公噸）、`sewage_treatment_rate` 污水處理率合計（%）、`sewage_public_rate` 公共污水下水道普及率（%）、`air_pm25` 細懸浮微粒年均濃度（微克／立方公尺）、`air_aqi` 空氣品質指標年均值 |
+| 精度 | `waste_total` 保留 1 位小數（連江縣約 0.66 萬公噸，取整數會變 1，誤差逾 50%） |
 | 驗證 | 臺北市公共污水下水道普及率達 88.2%（處理率達 89.2%）；臺東縣 PM2.5 年均濃度約 6.6 微克／立方公尺（全國最佳）。 |
 
 ### 人口結構、出生死亡、人口動態：戶政司（kiang/data.moi.gov.tw 轉存）

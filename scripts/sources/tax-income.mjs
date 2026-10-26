@@ -17,8 +17,8 @@ export const provides = [
 ];
 export const dependsOn = [];
 
-const FIA_PDF = 'https://www.fia.gov.tw/WEB/fia/ias/isa112/112_6-1.pdf';
-const FIA_YEAR = '112 年度';
+const FIA_PDF = 'https://www.fia.gov.tw/WEB/fia/ias/isa113s/isa113/113_6-1.pdf';
+const FIA_YEAR = '113 年度';
 
 export function parseTaxLines(lines) {
   const data = {};
@@ -50,7 +50,7 @@ export function parseTaxLines(lines) {
 }
 
 export async function collect({ items, fields, download }) {
-  const pdf = await download(FIA_PDF, 'fia_112_6_1.pdf');
+  const pdf = await download(FIA_PDF, 'fia_113_6_1.pdf');
   const text = pdfLines(pdf);
   const data = parseTaxLines(text);
 

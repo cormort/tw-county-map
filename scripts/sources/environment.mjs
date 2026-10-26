@@ -66,7 +66,7 @@ export async function collect({ items, fields, shared }) {
     url: 'https://data.gov.tw/dataset/6510',
   };
 
-  const natWasteTotal = natWaste ? Math.round(Number(natWaste['垃圾產生量總計']) / 10000) : null;
+  const natWasteTotal = natWaste ? round(Number(natWaste['垃圾產生量總計']) / 10000, 1) : null;
   const natWasteDaily = natWaste ? round(Number(natWaste['平均每人每日垃圾產生量(公斤)']), 3) : null;
   const natRecycleRate = natWaste ? round(Number(natWaste['垃圾回收率']), 2) : null;
   const natSewagePublic = natSewage ? round(Number(natSewage['公共污水下水道普及率']), 2) : null;
@@ -79,7 +79,7 @@ export async function collect({ items, fields, shared }) {
   fields.push(
     { key: 'waste_per_capita_daily', label: '每人每日垃圾產生量', unit: '公斤／人-日', digits: 3, ...wasteMeta, national: natWasteDaily },
     { key: 'recycling_rate', label: '垃圾回收率', unit: '%', digits: 2, ...wasteMeta, national: natRecycleRate },
-    { key: 'waste_total', label: '垃圾產生總量', unit: '萬公噸', ...wasteMeta, national: natWasteTotal },
+    { key: 'waste_total', label: '垃圾產生總量', unit: '萬公噸', digits: 1, ...wasteMeta, national: natWasteTotal },
     { key: 'sewage_treatment_rate', label: '污水處理率合計', unit: '%', digits: 2, ...sewageMeta, national: natSewageTotal },
     { key: 'sewage_public_rate', label: '公共污水下水道普及率', unit: '%', digits: 2, ...sewageMeta, national: natSewagePublic },
     { key: 'air_pm25', label: '細懸浮微粒年均濃度', unit: '微克／立方公尺', digits: 1, ...airMeta, national: natPm25 },
@@ -89,7 +89,7 @@ export async function collect({ items, fields, shared }) {
   for (const c of COUNTIES) {
     const wr = byCWaste[c];
     if (wr) {
-      items[c].waste_total = wr['垃圾產生量總計'] ? Math.round(Number(wr['垃圾產生量總計']) / 10000) : null;
+      items[c].waste_total = wr['垃圾產生量總計'] ? round(Number(wr['垃圾產生量總計']) / 10000, 1) : null;
       items[c].waste_per_capita_daily = wr['平均每人每日垃圾產生量(公斤)'] ? round(Number(wr['平均每人每日垃圾產生量(公斤)']), 3) : null;
       items[c].recycling_rate = wr['垃圾回收率'] ? round(Number(wr['垃圾回收率']), 2) : null;
     }

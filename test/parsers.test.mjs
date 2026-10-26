@@ -23,6 +23,8 @@ import { parseLaborRows } from '../scripts/sources/labor.mjs';
 import { parseLvrRows } from '../scripts/sources/house-price.mjs';
 import { parseFactoryRows } from '../scripts/sources/factories.mjs';
 import { indigenousLineOf } from '../scripts/sources/indigenous.mjs';
+import { sumEvCounts } from '../scripts/sources/vehicles.mjs';
+import { populationAt, yearEndPopulation } from '../scripts/lib/population-history.mjs';
 import { sources } from '../scripts/sources/index.mjs';
 
 test('csvLine：雙引號裡有逗號', () => {
@@ -221,6 +223,38 @@ test('indigenousLineOf：平地＋山地原住民才算，平埔與非縣市列�
   assert.equal(indigenousLineOf(line('臺北市大安區', '平埔原住民', 3)), null, '平埔不併入');
   assert.equal(indigenousLineOf(line('臺北市大安區', '非原住民', 999)), null);
   assert.equal(indigenousLineOf('a,b,台灣省,v,戶,平地原住民,性別,5'), null);
+});
+
+test('sumEvCounts：ConnectCounts 缺報時用站內 ConnectorCount 補，槍數不低於樁數', () => {
+  const entries = [{
+    EntityCode: 'TXG',
+    Item: {
+      StationCounts: 2, ChargingCounts: 9, ConnectCounts: 0,
+      StationDetailList: [
+        { ChargingPointCount: 4, ConnectCounts: 0, ChargingPointDetailList: [2, 2, 2, 2].map((n) => ({ ConnectorCount: n })) },
+        { ChargingPointCount: 5, ConnectCounts: 0, ChargingPointDetailList: [1, 1, 1, 1, 1].map((n) => ({ ConnectorCount: n })) },
+      ],
+    },
+  }, {
+    EntityCode: 'TPE',
+    Item: {
+      StationCounts: 1, ChargingCounts: 2, ConnectCounts: 3,
+      StationDetailList: [{ ChargingPointCount: 2, ConnectCounts: 3, ChargingPointDetailList: [{ ConnectorCount: 1 }, { ConnectorCount: 1 }] }],
+    },
+  }];
+  const out = sumEvCounts(entries);
+  assert.deepEqual(out['臺中市'], { stations: 2, points: 9, plugs: 13 }, '8 槍＋5 槍，不是缺報的 0 槍');
+  assert.deepEqual(out['臺北市'], { stations: 1, points: 2, plugs: 3 }, '站上報的槍數比較多就用它');
+  assert.deepEqual(out['連江縣'], { stations: 0, points: 0, plugs: 0 });
+});
+
+test('populationAt：取指定月底的 22 縣市人口，找不到月份要拋錯', async () => {
+  const pop = await populationAt('2024-12');
+  assert.equal(Object.keys(pop).length, 22);
+  assert.ok(pop['臺北市'] > 2_000_000);
+  assert.ok(pop['連江縣'] > 0);
+  assert.deepEqual(await yearEndPopulation(2024), pop);
+  await assert.rejects(() => populationAt('1999-01'), /沒有 1999-01/);
 });
 
 test('來源註冊表：id 不重複、dependsOn 指得到、provides 對得上實際欄位', async () => {
