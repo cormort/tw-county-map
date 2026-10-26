@@ -35,6 +35,7 @@ export function ChoroplethMap({
   colorOf,
   formatCounty,
   legendItems,
+  rankScale = false,
 }: {
   items: { county: string; path: string }[];
   values: Map<string, number | null>;
@@ -59,6 +60,8 @@ export function ChoroplethMap({
   formatCounty?: (county: string, value: number | null) => string;
   /** 類別型圖例（例如政黨色塊圖例） */
   legendItems?: { label: string; color: string }[];
+  /** 依排名（分位數）上色，避免極端值讓大部分縣市顯示成同一種淺色 */
+  rankScale?: boolean;
 }) {
   const [hover, setHover] = useState<string | null>(null);
 
@@ -101,7 +104,10 @@ export function ChoroplethMap({
 
   // 預先算好每個區塊的填色與標籤，避免滑過 368 個鄉鎮時每次 mousemove 重算色階插值
   const prepared = useMemo(() => {
-    const t = (v: number) => (max === min ? 1 : (v - min) / (max - min));
+    const sorted = rankScale && !diverging ? [...values.values()].filter((v): v is number => Number.isFinite(v)).sort((a, b) => a - b) : [];
+    const t = sorted.length > 1
+      ? (v: number) => sorted.filter((x) => x < v).length / (sorted.length - 1)
+      : (v: number) => (max === min ? 1 : (v - min) / (max - min));
     return ordered.map((c) => {
       const raw = values.get(c.county);
       const v = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
@@ -110,18 +116,19 @@ export function ChoroplethMap({
       const label = formatCounty ? formatCounty(c.county, v) : `${c.county}：${format(v)}`;
       return { county: c.county, path: c.path, fillStyle, label };
     });
-  }, [ordered, values, scale, min, max, colorOf, formatCounty, format]);
+  }, [ordered, values, scale, min, max, colorOf, formatCounty, format, rankScale, diverging]);
 
   const focus = hover ?? selected ?? null;
   // inset：放大圖裡的區塊不進 Tab 順序（主地圖已經有同一個縣市，不要讓鍵盤走兩遍）
-  const shapes = (inset: boolean) =>
+  // dim：選了分區時，放大圖把不屬於這個分區的縣市調淡
+  const shapes = (inset: boolean, dim = false) =>
     prepared.map((c) => (
       <path
         key={c.county}
         d={c.path}
         className="county-shape"
         aria-current={c.county === selected ? 'true' : undefined}
-        style={{ fill: c.fillStyle }}
+        style={{ fill: c.fillStyle, opacity: dim && !regionCounties.includes(c.county) ? 0.3 : undefined }}
         tabIndex={inset ? -1 : 0}
         role="button"
         aria-label={c.label}
@@ -165,21 +172,25 @@ export function ChoroplethMap({
         <text x="26" y="134" className="county-inset-label">連江縣</text>
         <text x="6" y="238" className="county-inset-label">金門縣</text>
       </svg>
-      {zooms.map((z) => (
-        <div key={z.label} className="stat-map-north" data-region-zoom={regionName}>
-          <span className="muted">{z.label}</span>
-          <svg viewBox={z.viewBox} aria-hidden="true">
-            {shapes(true)}
-            {overlays}
-            {z.labels.map((l) => (
-              <text key={l.name} x={l.x} y={l.y} className="stat-map-north-label" style={{ fontSize: z.fontSize }}>
-                {l.name.slice(0, 2)}
-              </text>
-            ))}
-          </svg>
+      {zooms.length ? (
+        <div className={`stat-map-zooms${zooms.length > 1 ? ' is-multi' : ''}`}>
+          {zooms.map((z) => (
+            <div key={z.label} className="stat-map-north" data-region-zoom={regionName}>
+              <span className="muted">{z.label}</span>
+              <svg viewBox={z.viewBox} aria-hidden="true">
+                {shapes(true, regionFirst)}
+                {overlays}
+                {z.labels.map((l) => (
+                  <text key={l.name} x={l.x} y={l.y} className="stat-map-north-label" style={{ fontSize: z.fontSize }}>
+                    {l.name.slice(0, 2)}
+                  </text>
+                ))}
+              </svg>
+            </div>
+          ))}
         </div>
-      ))}
-      <p className="stat-map-hover" aria-live="polite" style={regionFirst && zooms.length ? { order: 3 } : undefined}>
+      ) : null}
+      <p className="stat-map-hover" aria-live="polite" style={regionFirst && zooms.length ? { order: 1 } : undefined}>
         {focus ? (
           <>
             <b>{focus}</b>　{formatCounty ? formatCounty(focus, values.get(focus) ?? null).replace(`${focus}：`, '') : format(values.get(focus) ?? null)}
@@ -189,7 +200,7 @@ export function ChoroplethMap({
         )}
       </p>
       {legendItems && legendItems.length ? (
-        <div className="stat-legend-categories" style={regionFirst && zooms.length ? { order: 3 } : undefined}>
+        <div className="stat-legend-categories" style={regionFirst && zooms.length ? { order: 1 } : undefined}>
           {legendItems.map((item) => (
             <span key={item.label} className="legend-chip">
               <i style={{ background: item.color }} aria-hidden="true" />
@@ -198,10 +209,11 @@ export function ChoroplethMap({
           ))}
         </div>
       ) : hasNums ? (
-        <div className="stat-legend" style={regionFirst && zooms.length ? { order: 3 } : undefined}>
+        <div className="stat-legend" style={regionFirst && zooms.length ? { order: 1 } : undefined}>
           <span>{format(min)}</span>
           <i style={{ background: gradient(scale) }} aria-hidden="true" />
           <span>{format(max)}</span>
+          {rankScale && !diverging ? <small className="muted">依排名上色</small> : null}
         </div>
       ) : null}
     </figure>

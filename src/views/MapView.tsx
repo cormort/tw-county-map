@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { Download, Upload } from 'lucide-react';
 import type { CountiesResponse, CountyElection, CountyItem, CountyStatsResponse } from '../api/types';
 import { ChoroplethMap } from '../components/ChoroplethMap';
@@ -14,6 +14,11 @@ import { formatMetric, formatterOf, valuesOf, type Metric } from '../lib/metrics
 import { noteFor } from '../lib/metricNotes';
 import { partyStyle } from '../lib/parties';
 import { SubTabs, type View, type ViewContext } from './shared';
+import { REGIONS } from '../components/CountyOptions';
+import { RegionContext, RegionFirstContext } from '../lib/regionZoom';
+
+/** 人口基數小於這個數字的縣市（連江、金門、澎湖），比率與排名容易被極端值拉動 */
+const SMALL_BASE = 200_000;
 
 type Mode = 'map' | 'ranking' | 'table';
 const MODES: { key: Mode; label: string }[] = [
@@ -51,14 +56,22 @@ export function MapView({ data, metrics, current, onSelect, goView, custom }: Vi
   const [metricKey, setMetricKey] = useParam<string>('metric', 'population');
   const [mode, setMode] = useParam<Mode>('sub', 'map', MODES.map((m) => m.key));
   const [scale, setScale] = useParam<ScaleName>('scale', 'YlOrRd', SCALES.map((x) => x.key));
+  const [shade, setShade] = useParam<'linear' | 'rank'>('shade', 'linear', ['linear', 'rank']);
+  const regionName = useContext(RegionContext);
+  const regionFirst = useContext(RegionFirstContext);
   const [showCustom, setShowCustom] = useState(false);
-  const items = data.items;
+  const allItems = data.items;
+  // 視角選了分區（且沒選縣市）：統計、排行、右欄都只算這個分區的縣市；地圖仍畫全部
+  const regionList = REGIONS.find((r) => r.name === regionName)?.counties ?? [];
+  const scoped = !current && regionFirst;
+  const items = scoped ? allItems.filter((c) => regionList.includes(c.county)) : allItems;
+  const scopeLabel = scoped ? regionName : null;
   const metric = metrics.find((m) => m.key === metricKey) ?? metrics[0];
   const focus = current?.county;
 
-  const mapValues = new Map(items.map((c) => [c.county, metric.value(c)]));
+  const mapValues = new Map(allItems.map((c) => [c.county, metric.value(c)]));
   const winnerOf = (county: string) => {
-    const c = items.find((x) => x.county === county);
+    const c = allItems.find((x) => x.county === county);
     return c && metric.partyOf ? metric.partyOf(c) : null;
   };
 
@@ -66,7 +79,7 @@ export function MapView({ data, metrics, current, onSelect, goView, custom }: Vi
     <div className="view-stack">
       {showCustom ? (
         <CustomData
-          counties={items.map((c) => c.county)}
+          counties={allItems.map((c) => c.county)}
           loaded={custom.loaded}
           onLoad={(s) => { custom.onLoad(s); setMetricKey(s.fields[0].key); }}
           onClear={() => { custom.onClear(); if (metric.category === '自訂') setMetricKey('population'); }}
@@ -94,12 +107,19 @@ export function MapView({ data, metrics, current, onSelect, goView, custom }: Vi
                 ))}
               </div>
             ) : null}
+            {mode === 'map' && !metric.partyOf ? (
+              <div className="segmented" role="group" aria-label="上色方式">
+                <button type="button" aria-pressed={shade === 'linear'} onClick={() => setShade('linear')} title="依數值大小線性上色">數值</button>
+                <button type="button" aria-pressed={shade === 'rank'} onClick={() => setShade('rank')} title="依排名上色：極端值不會讓大部分縣市變成同一種淺色">排名</button>
+              </div>
+            ) : null}
           </div>
           {mode === 'map' ? (
             <ChoroplethMap
-              items={items}
+              items={allItems}
               values={mapValues}
               scale={scale}
+              rankScale={shade === 'rank'}
               format={formatterOf(metric)}
               title={metric.label}
               selected={focus}
@@ -107,27 +127,27 @@ export function MapView({ data, metrics, current, onSelect, goView, custom }: Vi
               colorOf={metric.partyOf ? (county) => { const p = winnerOf(county); return p ? partyStyle(p).color : null; } : undefined}
               legendItems={metric.partyOf ? WINNER_LEGEND : undefined}
               formatCounty={metric.partyOf ? (county) => {
-                const cand = metric.election ? items.find((x) => x.county === county)?.elections[metric.election].candidates[0] : null;
+                const cand = metric.election ? allItems.find((x) => x.county === county)?.elections[metric.election].candidates[0] : null;
                 return cand ? `${county}：${cand.party}（${cand.name} ${cand.pct.toFixed(2)}%）` : `${county}：無資料`;
               } : undefined}
             />
           ) : mode === 'ranking' ? (
             <Ranking metric={metric} items={items} focus={focus} onSelect={onSelect} />
           ) : (
-            <DataTable data={data} metrics={metrics} metric={metric} focus={focus} onSelect={onSelect} />
+            <DataTable data={{ ...data, items }} metrics={metrics} metric={metric} focus={focus} onSelect={onSelect} />
           )}
         </section>
 
         <div className="map-stats">
           <MetricNote metricKey={metric.key} metric={metric} />
-          <Stats metric={metric} items={items} />
+          <Stats metric={metric} items={items} region={scopeLabel} />
         </div>
 
         <aside className="map-detail">
           {current ? (
             <CountyDetail county={current} data={data} metric={metric} metrics={metrics} goView={goView} />
           ) : (
-            <NationalDetail metric={metric} items={items} onSelect={onSelect} />
+            <NationalDetail metric={metric} items={items} allItems={allItems} region={scopeLabel} onSelect={onSelect} />
           )}
         </aside>
       </div>
@@ -165,7 +185,7 @@ function MetricNote({ metricKey, metric }: { metricKey: string; metric: Metric }
  * 指標的全國統計。政黨版圖改列各黨拿下幾個縣市（以前會印出「縣市平均 43.97%」這種沒有意義的數字）；
  * 比率類的「縣市平均」是 22 縣市未加權平均，跟全國值不同，標清楚。
  */
-function Stats({ metric, items }: { metric: Metric; items: CountyItem[] }) {
+function Stats({ metric, items, region }: { metric: Metric; items: CountyItem[]; region?: string | null }) {
   if (metric.partyOf) {
     const won = new Map<string, number>();
     for (const c of items) {
@@ -187,7 +207,9 @@ function Stats({ metric, items }: { metric: Metric; items: CountyItem[] }) {
   if (!rows.length) return <p className="muted">這個指標沒有資料。</p>;
   const sum = rows.reduce((s, r) => s + r.v, 0);
   const rate = metric.kind === 'rate' || RATE_UNIT.test(metric.unit);
-  const nationalTile = metric.national
+  const nationalTile = region
+    ? rate ? null : { value: formatMetric(metric, sum), label: `${region}加總（${rows.length} 縣市）` }
+    : metric.national
     ? { value: formatMetric(metric, metric.national.value(items)), label: metric.national.label }
     : rate ? null : { value: formatMetric(metric, sum), label: `全國加總（${rows.length} 縣市）` };
   const tiles = [
@@ -224,14 +246,18 @@ function Ranking({ metric, items, focus, onSelect }: { metric: Metric; items: Co
         {rows.map((r, i) => (
           <li key={r.county} aria-current={r.county === focus ? 'true' : undefined}>
             <span className="muted">{i + 1}</span>
-            <button type="button" className="link-button" onClick={() => onSelect(r.county)}>{r.county}</button>
+            <span>
+              <button type="button" className="link-button" onClick={() => onSelect(r.county)}>{r.county}</button>
+              {!metric.partyOf && (items.find((c) => c.county === r.county)?.population ?? Infinity) < SMALL_BASE ? <sup className="muted" title="人口基數小（不到 20 萬），比率與排名容易被極端值拉動">※</sup> : null}
+            </span>
             <span className="stat-bar" aria-hidden="true">
-              <i style={{ width: `${Math.max(2, (Math.max(r.v, 0) / max) * 100)}%`, background: metric.partyOf ? partyStyle(metric.partyOf(items.find((c) => c.county === r.county)!)).color : colorAt('Viridis', max === min ? 1 : (r.v - min) / (max - min)) }} />
+              <i style={{ width: `${Math.max(4, Math.sqrt(Math.max(r.v, 0) / max) * 100)}%`, background: metric.partyOf ? partyStyle(metric.partyOf(items.find((c) => c.county === r.county)!)).color : colorAt('Viridis', max === min ? 1 : (r.v - min) / (max - min)) }} />
             </span>
             <span className="stat-bar-value">{formatMetric(metric, r.v)}</span>
           </li>
         ))}
       </ol>
+      {!metric.partyOf ? <p className="muted">長條長度以平方根縮放，避免極端值讓小縣市的長條看不見。※ 人口不到 20 萬的縣市。</p> : null}
     </>
   );
 }
@@ -284,11 +310,13 @@ function DataTable({ data, metrics, metric, focus, onSelect }: { data: CountiesR
 }
 
 /** 全國視角的右欄：最高、最低各 5 個縣市（點了切換視角） */
-function NationalDetail({ metric, items, onSelect }: { metric: Metric; items: CountyItem[]; onSelect: (county: string) => void }) {
+function NationalDetail({ metric, items, allItems, region, onSelect }: { metric: Metric; items: CountyItem[]; allItems: CountyItem[]; region?: string | null; onSelect: (county: string) => void }) {
   const rows = valuesOf(metric, items).sort((a, b) => b.v - a.v);
-  const list = (title: string, part: { county: string; v: number }[]) => (
+  const n = Math.min(5, Math.ceil(rows.length / 2));
+  const title = region ?? '全國';
+  const list = (heading: string, part: { county: string; v: number }[]) => (
     <div>
-      <h3>{title}</h3>
+      <h3>{heading}</h3>
       <ol className="extremes-list">
         {part.map((r) => (
           <li key={r.county}>
@@ -299,20 +327,44 @@ function NationalDetail({ metric, items, onSelect }: { metric: Metric; items: Co
       </ol>
     </div>
   );
+  // 沒選分區時：五大分區的並排比較（比率取區內縣市平均，其餘加總）
+  const rate = metric.kind === 'rate' || RATE_UNIT.test(metric.unit);
+  const regionRows = region || metric.partyOf ? [] : REGIONS.flatMap((r) => {
+    const vals = valuesOf(metric, allItems.filter((c) => r.counties.includes(c.county))).map((x) => x.v);
+    if (!vals.length) return [];
+    const total = vals.reduce((s, v) => s + v, 0);
+    return [{ name: r.name, v: rate ? total / vals.length : total }];
+  });
+  const regionMax = Math.max(...regionRows.map((r) => Math.abs(r.v)), 0) || 1;
   return (
-    <section className="panel county-detail" aria-label="全國">
+    <section className="panel county-detail" aria-label={title}>
       <div className="county-detail-head">
-        <h2>全國</h2>
+        <h2>{title}</h2>
       </div>
       <p className="muted">點地圖上的縣市，或從上方「視角」選縣市，就能看該縣市的明細。</p>
       {metric.partyOf ? null : rows.length ? (
         <div className="extremes-grid">
-          {list('最高 5 個縣市', rows.slice(0, 5))}
-          {list('最低 5 個縣市', rows.slice(-5).reverse())}
+          {list(`最高 ${n} 個縣市`, rows.slice(0, n))}
+          {list(`最低 ${n} 個縣市`, rows.slice(-n).reverse())}
         </div>
       ) : (
         <p className="muted">這個指標沒有資料。</p>
       )}
+      {regionRows.length ? (
+        <div className="region-compare">
+          <h3>分區比較{rate ? '（縣市平均，未加權）' : '（加總）'}</h3>
+          <ol className="stat-ranking">
+            {regionRows.map((r) => (
+              <li key={r.name}>
+                <span />
+                <span>{r.name}</span>
+                <span className="stat-bar" aria-hidden="true"><i style={{ width: `${Math.max(4, (Math.abs(r.v) / regionMax) * 100)}%`, background: colorAt('Viridis', Math.abs(r.v) / regionMax) }} /></span>
+                <span className="stat-bar-value">{formatMetric(metric, r.v)}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -471,6 +471,10 @@ th.num .tip:hover::after, th.num .tip:focus-visible::after { left: auto; right: 
 .stat-map { margin: 0; display: grid; gap: 8px; }
 .stat-map figcaption { font-weight: 700; text-align: center; }
 .stat-map svg { width: 100%; height: auto; max-height: 70vh; background: var(--map-sea); border-radius: var(--radius-md); -webkit-tap-highlight-color: transparent; }
+.stat-map-zooms { display: grid; gap: 8px; }
+.stat-map-zooms.is-multi { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.stat-map-zooms.is-multi .stat-map-north svg { max-height: 36vh; }
+.stat-legend small { grid-column: 1 / -1; text-align: center; }
 .stat-map-north { position: relative; border: 1px dashed var(--line); border-radius: var(--radius-md); overflow: hidden; }
 .stat-map-north > span { position: absolute; top: 6px; left: 10px; font-size: var(--fs-sm); pointer-events: none; }
 .stat-map-north svg { display: block; width: 100%; height: auto; max-height: none; min-height: 0; }
