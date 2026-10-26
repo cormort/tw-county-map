@@ -103,6 +103,8 @@ export const METRIC_NOTES: Record<string, { definition: string; meaning: string 
   tax_revenue: { definition: '各縣市政府歲入決算之稅課收入（百萬元，含中央統籌分配稅款）', meaning: '地方歲入裡的稅課收入，包含地方稅（地價稅、房屋稅、使用牌照稅等）與中央統籌分配稅款；不是純地方稅，仰賴統籌分配稅的縣市會偏高。' },
   tax_revenue_ratio: { definition: '歲入稅課收入 ÷ 歲入總額 × 100', meaning: '稅課收入占縣市政府整體收入的比重；比重高代表自有稅收能力強，依賴中央補助較少。' },
   tax_revenue_per_capita: { definition: '歲入稅課收入 ÷ 同年度年底人口', meaning: '平均每位縣民對應的歲入稅課收入（含統籌分配稅款），不是個人實際繳的地方稅。' },
+  local_tax: { definition: '直轄市及縣(市)稅全年實徵淨額（百萬元，財政部統計月報表 3-5）', meaning: '真正的地方稅收（地價稅、房屋稅、土地增值稅、使用牌照稅等），不含中央統籌分配稅款；比「歲入稅課收入」更接近地方自己的稅收能力。' },
+  local_tax_per_capita: { definition: '地方稅實徵淨額 ÷ 同年度年底人口', meaning: '平均每位縣民對應的地方稅收；工商活動強、不動產交易多的縣市通常較高。' },
   tax_filing_tax_payable: { definition: '綜合所得稅結算申報應納稅額加總（百萬元，財政資訊中心專冊）', meaning: '該縣市申報人為國庫貢獻的個人綜合所得稅總額。' },
   tax_filing_avg_tax: { definition: '綜稅應納稅額 ÷ 申報戶數', meaning: '報稅戶平均繳納的所得稅金額。' },
   tax_filing_effective_rate: { definition: '綜稅應納稅額 ÷ 綜合所得總額 × 100', meaning: '綜稅實質有效稅率；高所得申報戶較多的縣市，累進稅率下實質稅率通常較高。' },

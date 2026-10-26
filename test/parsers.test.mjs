@@ -24,6 +24,7 @@ import { parseLvrRows } from '../scripts/sources/house-price.mjs';
 import { parseFactoryRows } from '../scripts/sources/factories.mjs';
 import { indigenousLineOf } from '../scripts/sources/indigenous.mjs';
 import { sumEvCounts } from '../scripts/sources/vehicles.mjs';
+import { parseLocalTaxLines, parseLocalTaxTotal, decemberOf } from '../scripts/sources/local-tax.mjs';
 import { populationAt, yearEndPopulation } from '../scripts/lib/population-history.mjs';
 import { sources } from '../scripts/sources/index.mjs';
 
@@ -246,6 +247,19 @@ test('sumEvCounts：ConnectCounts 缺報時用站內 ConnectorCount 補，槍數
   assert.deepEqual(out['臺中市'], { stations: 2, points: 9, plugs: 13 }, '8 槍＋5 槍，不是缺報的 0 槍');
   assert.deepEqual(out['臺北市'], { stations: 1, points: 2, plugs: 3 }, '站上報的槍數比較多就用它');
   assert.deepEqual(out['連江縣'], { stations: 0, points: 0, plugs: 0 });
+});
+
+test('parseLocalTaxLines：取「本年度累計」第 4 個數字，千元換百萬元', () => {
+  const lines = [
+    '表3-5       直轄市及縣(市)稅實徵淨額總計－按地區別分',
+    '114年12月',
+    '    合           計   51,368,759  2,701,331  5.6 375,958,849 -15,595,348 -4.0',
+    '    臺   北    市   15,606,029  908,482  6.2  77,655,227 -2,385,753 -3.0',
+    '    連   江    縣        2,723      -94 -3.3      51,181     -3,937 -7.1',
+  ];
+  assert.equal(decemberOf(lines), 114);
+  assert.deepEqual(parseLocalTaxLines(lines), { '臺北市': 77655, '連江縣': 51 });
+  assert.equal(parseLocalTaxTotal(lines), 375959);
 });
 
 test('populationAt：取指定月底的 22 縣市人口，找不到月份要拋錯', async () => {

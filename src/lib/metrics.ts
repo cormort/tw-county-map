@@ -86,7 +86,8 @@ function inferSubcategory(m: { category: string; label: string; key: string }): 
   }
   if (m.category === '財政') {
     if (m.label.includes('綜稅') || m.label.includes('所得稅')) return '國稅與綜所稅';
-    if (m.label.includes('地方稅') || m.label.includes('稅課')) return '稅課收入';
+    if (m.label.includes('地方稅')) return '地方稅';
+    if (m.label.includes('稅課')) return '稅課收入';
     if (m.label.includes('債務') || m.label.includes('負債')) return '公共債務';
     return '歲入與歲出決算';
   }
