@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
 import { colorAt, gradient, type ScaleName } from '../lib/colorScales';
+import { REGIONS } from './CountyOptions';
+import { pathBox, REGION_ZOOMS, RegionContext, RegionFirstContext } from '../lib/regionZoom';
 
 /**
  * 被包在鄰縣裡的縣市：新北市、嘉義縣的 path 是沒挖洞的整塊，畫在後面會把臺北市、嘉義市整個蓋住，
@@ -7,11 +9,11 @@ import { colorAt, gradient, type ScaleName } from '../lib/colorScales';
  */
 const ENCLAVES = ['臺北市', '嘉義市'];
 
-/** 北部縣市太小不好點：縣市圖下方另畫一張放大圖（同一份 path，只換 viewBox 裁切） */
-const NORTH = ['臺北市', '新北市', '基隆市', '桃園市', '新竹市'];
-const NORTH_VIEWBOX = '300 38 218 150';
-/** 放大圖裡小縣市的名稱位置（各縣市外框的中心，viewBox 座標） */
-const NORTH_LABELS: [string, number, number][] = [['臺北市', 432, 86], ['基隆市', 461, 78], ['新竹市', 321, 145], ['桃園市', 368, 132]];
+/** 縣市圖下方依視角所在分區另畫放大圖（同一份 path，只換 viewBox 裁切）；縣市名稱放在各縣市外框中心 */
+function parseBox(viewBox: string) {
+  const [x, y, w, h] = viewBox.split(' ').map(Number);
+  return { x, y, w, h };
+}
 
 /**
  * 面量圖：顏色代表數值（連續色階），滑過或點選顯示數值；金門、連江在左上插圖框。
@@ -75,7 +77,23 @@ export function ChoroplethMap({
   }, [values, diverging]);
 
   const pathByCounty = useMemo(() => new Map(items.map((c) => [c.county, c.path])), [items]);
-  const showNorth = useMemo(() => NORTH.every((n) => pathByCounty.has(n)), [pathByCounty]);
+  const regionName = useContext(RegionContext);
+  const regionFirst = useContext(RegionFirstContext);
+  // 鄉鎮圖的 key 是「縣市＋鄉鎮」，找不到縣市就不畫放大圖
+  const regionCounties = useMemo(() => (REGIONS.find((r) => r.name === regionName)?.counties ?? []).filter((c) => pathByCounty.has(c)), [regionName, pathByCounty]);
+  const zooms = useMemo(() => {
+    if (!regionCounties.length) return [];
+    return (REGION_ZOOMS[regionName] ?? []).map((z) => {
+      const vb = parseBox(z.viewBox);
+      const labels = (regionName === '外島' ? [] : regionCounties).flatMap((name) => {
+        const b = pathBox(pathByCounty.get(name)!);
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        // 只標中心落在這張放大圖裡的縣市
+        return cx >= vb.x && cx <= vb.x + vb.w && cy >= vb.y && cy <= vb.y + vb.h ? [{ name, x: cx, y: cy }] : [];
+      });
+      return { ...z, labels, fontSize: Math.max(4, vb.w * 0.032) };
+    });
+  }, [regionName, regionCounties, pathByCounty]);
   const ordered = useMemo(
     () => [...items].sort((a, b) => Number(ENCLAVES.includes(a.county)) - Number(ENCLAVES.includes(b.county))),
     [items],
@@ -132,7 +150,7 @@ export function ChoroplethMap({
   return (
     <figure className="stat-map">
       <figcaption>{title}</figcaption>
-      <svg viewBox={viewBox} role="group" aria-label={title} className={level === 'town' ? 'map-town' : undefined}>
+      <svg viewBox={viewBox} role="group" aria-label={title} className={level === 'town' ? 'map-town' : undefined} style={regionFirst && zooms.length ? { order: 2 } : undefined}>
         {/* 金門、連江的插圖框 */}
         <rect className="county-inset" x="22" y="4" width="128" height="112" rx="6" />
         <rect className="county-inset" x="3" y="166" width="66" height="54" rx="6" />
@@ -147,21 +165,21 @@ export function ChoroplethMap({
         <text x="26" y="134" className="county-inset-label">連江縣</text>
         <text x="6" y="238" className="county-inset-label">金門縣</text>
       </svg>
-      {showNorth ? (
-        <div className="stat-map-north">
-          <span className="muted">北部放大</span>
-          <svg viewBox={NORTH_VIEWBOX} aria-hidden="true">
+      {zooms.map((z) => (
+        <div key={z.label} className="stat-map-north" data-region-zoom={regionName}>
+          <span className="muted">{z.label}</span>
+          <svg viewBox={z.viewBox} aria-hidden="true">
             {shapes(true)}
             {overlays}
-            {NORTH_LABELS.map(([name, x, y]) => (
-              <text key={name} x={x} y={y} className="stat-map-north-label">
-                {name.slice(0, 2)}
+            {z.labels.map((l) => (
+              <text key={l.name} x={l.x} y={l.y} className="stat-map-north-label" style={{ fontSize: z.fontSize }}>
+                {l.name.slice(0, 2)}
               </text>
             ))}
           </svg>
         </div>
-      ) : null}
-      <p className="stat-map-hover" aria-live="polite">
+      ))}
+      <p className="stat-map-hover" aria-live="polite" style={regionFirst && zooms.length ? { order: 3 } : undefined}>
         {focus ? (
           <>
             <b>{focus}</b>　{formatCounty ? formatCounty(focus, values.get(focus) ?? null).replace(`${focus}：`, '') : format(values.get(focus) ?? null)}
@@ -171,7 +189,7 @@ export function ChoroplethMap({
         )}
       </p>
       {legendItems && legendItems.length ? (
-        <div className="stat-legend-categories">
+        <div className="stat-legend-categories" style={regionFirst && zooms.length ? { order: 3 } : undefined}>
           {legendItems.map((item) => (
             <span key={item.label} className="legend-chip">
               <i style={{ background: item.color }} aria-hidden="true" />
@@ -180,7 +198,7 @@ export function ChoroplethMap({
           ))}
         </div>
       ) : hasNums ? (
-        <div className="stat-legend">
+        <div className="stat-legend" style={regionFirst && zooms.length ? { order: 3 } : undefined}>
           <span>{format(min)}</span>
           <i style={{ background: gradient(scale) }} aria-hidden="true" />
           <span>{format(max)}</span>

@@ -16,6 +16,7 @@ import { CompareView } from './views/CompareView';
 import { ElectionsView } from './views/ElectionsView';
 import { PopulationView } from './views/PopulationView';
 import type { View, ViewContext } from './views/shared';
+import { RegionContext, RegionFirstContext } from './lib/regionZoom';
 
 /** 「我的縣市」存在瀏覽器裡：縣市首長每次進來直接看到自己的縣市，不用再選一次 */
 const HOME_KEY = 'tw-county-map:home';
@@ -48,6 +49,19 @@ export function App() {
   const [home, setHome] = useState<string | null>(readHome);
   const [scope, setScope] = useParam<string>('county', home || NATIONAL);
   const [view, setView] = useParam<View>('view', 'map', VIEWS.map((v) => v.key));
+  // 視角選北／中／南／東／外島＝看全國，但各地圖下方改放大那個分區；選了縣市就放大它所在的分區
+  const [regionParam, setRegionParam] = useParam<string>('region', '', REGIONS.map((r) => r.name));
+  const region = REGIONS.find((r) => r.counties.includes(scope))?.name ?? (scope === NATIONAL && regionParam ? regionParam : '北部');
+  const scopeValue = scope === NATIONAL && regionParam ? regionParam : scope;
+  const changeScope = (value: string) => {
+    if (REGIONS.some((r) => r.name === value)) {
+      setScope(NATIONAL);
+      setRegionParam(value);
+    } else {
+      setRegionParam('');
+      setScope(value);
+    }
+  };
 
   const res = useApi<CountiesResponse>(buildUrl('/counties'));
   // 醫療、房價、農地：沒有這個檔就只是少幾個指標，不擋整頁
@@ -127,8 +141,11 @@ export function App() {
           <div className="scope-bar" role="group" aria-label="視角">
             <label className="scope-select">
               <span>視角</span>
-              <select id="scope-select" value={scope} onChange={(event) => setScope(event.target.value)}>
+              <select id="scope-select" value={scopeValue} onChange={(event) => changeScope(event.target.value)}>
                 <option value={NATIONAL}>{NATIONAL}</option>
+                <optgroup label="分區">
+                  {REGIONS.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+                </optgroup>
                 <CountyOptions counties={ALL_COUNTIES} />
               </select>
             </label>
@@ -143,7 +160,7 @@ export function App() {
               <button type="button" id="scope-go-home" className="link-button" onClick={() => setScope(home)}>回到{home}</button>
             ) : null}
             {scope !== NATIONAL ? (
-              <button type="button" id="scope-national" className="link-button" onClick={() => setScope(NATIONAL)}>看全國</button>
+              <button type="button" id="scope-national" className="link-button" onClick={() => changeScope(NATIONAL)}>看全國</button>
             ) : null}
           </div>
         </div>
@@ -157,7 +174,7 @@ export function App() {
         </nav>
       </header>
       <DataFreshness stats={stats.data} />
-      <main className="page">{body}</main>
+      <main className="page"><RegionContext.Provider value={region}><RegionFirstContext.Provider value={Boolean(regionParam)}>{body}</RegionFirstContext.Provider></RegionContext.Provider></main>
       {res.data ? (
         <footer className="app-footer">
           <Sources data={res.data} stats={stats.data} snapshotAt={snapshotAt} />
