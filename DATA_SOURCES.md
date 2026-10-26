@@ -83,6 +83,18 @@ cat /etc/ssl/cert.pem /tmp/twca.pem > /tmp/bundle.pem
 curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230038/mp0101a10.xml'
 ```
 
+### 綜合所得稅申報與稅額：財政部財政資訊中心
+
+| 項目 | 內容 |
+| --- | --- |
+| 資料 | 112 年度綜合所得稅申報初步核定統計專冊（表 6-1 綜稅所得應納稅額及稅率各縣市申報統計表） |
+| 下載網址 | <https://www.fia.gov.tw/WEB/fia/ias/isa112/112_6-1.pdf>（PDF，使用 `pdftotext -layout` 解析） |
+| 目前資料期 | 112 年度申報核定 |
+| 涵蓋 | 22 縣市（含金門縣、連江縣，補足家庭收支調查無離島之限制） |
+| 指標 | `tax_filing_units` 綜稅申報戶數、`tax_filing_avg_income` 申報戶平均所得（所得總額 ÷ 申報戶數，元）、`tax_filing_total_income` 綜合所得申報總額（百萬元）、`tax_filing_tax_payable` 綜稅應納稅額（百萬元）、`tax_filing_avg_tax` 申報戶平均應納稅額（元）、`tax_filing_effective_rate` 綜稅有效稅率（%） |
+| 意義 | 課稅申報資料，反映在地報稅戶的綜合所得水準（新竹市、新竹縣與臺北市領先）以及各縣市為國庫貢獻的個人綜合所得稅規模。 |
+| 已知限制 | 僅包含申報課稅之所得（薪資、股利、利息等），未包含政府移轉支出（社會福利補貼）與免稅所得。 |
+
 ### 用電量：台電
 
 | 項目 | 內容 |
@@ -166,14 +178,48 @@ curl --cacert /tmp/bundle.pem -O 'https://ws.dgbas.gov.tw/001/Upload/461/relfile
 
 ### 財政：國發會、國庫署
 
-| 項目 | 歲入、歲出決算 | 公共債務 |
+| 項目 | 歲入、歲出決算、地方稅 | 公共債務 |
 | --- | --- | --- |
 | 資料集 | 8-1 各縣市政府歲入決算數 <https://data.gov.tw/dataset/6518>；8-2 各縣市政府歲出決算數 <https://data.gov.tw/dataset/6519>（國發會「都市及區域發展統計彙編」） | 歷年各級政府債務概況表 <https://data.gov.tw/dataset/25301>（財政部國庫署） |
 | 下載網址 | 見腳本 `ndcCsv(...)` 兩行（`ws.ndc.gov.tw/Download.ashx?...`） | <https://lgd.nta.gov.tw/newlgd/opendata/D3-09.csv> |
 | 目前資料期 | 2024 年度決算 | 民國 114 年度（2025） |
 | 單位 | 百萬元 | 百萬元 |
-| 指標 | `own_revenue_ratio` 自有財源占歲入比率 ＝（歲入合計－補助及協助收入）÷ 歲入合計；`expenditure_per_capita` 每人歲出 ＝ 歲出合計 × 10⁶ ÷ 最新月人口 | `debt` 公共債務餘額（「債務合計」欄：1 年以上＋未滿 1 年）；`debt_per_capita` 每人負債 ＝ 債務 × 10⁶ ÷ 最新月人口 |
+| 指標 | `own_revenue_ratio` 自有財源占歲入比率 ＝（歲入合計－補助及協助收入）÷ 歲入合計；`expenditure_per_capita` 每人歲出 ＝ 歲出合計 × 10⁶ ÷ 最新月人口；`tax_revenue` 地方稅課收入（百萬元）；`tax_revenue_ratio` 地方稅占歲入比率（%）；`tax_revenue_per_capita` 平均每人地方稅負（元） | `debt` 公共債務餘額（「債務合計」欄：1 年以上＋未滿 1 年）；`debt_per_capita` 每人負債 ＝ 債務 × 10⁶ ÷ 最新月人口 |
 | 已知限制 | 一般常見的「自有財源比率」是以**歲出**為分母，但用這份資料算，臺北市會超過 100%（2024 歲入 2,228 億、歲出 1,587 億），跟官方數字對不起來，所以改用定義明確的「占歲入比率」 | 表內的比率欄，直轄市與縣市的分母不同（GDP 或歲出），所以只用金額 |
+
+### 交通與充電設施：機動車輛登記數、交通支出與公共充電樁
+
+| 項目 | 車輛數與交通費用 | 公共充電樁與充電站 |
+| --- | --- | --- |
+| 資料集 | 6-3-2 交通費用、汽車數及機車數 <https://data.gov.tw/dataset/6500>（國發會彙編，原始資料為交通部統計處監理登記數與主計總處家庭收支調查） | 全臺充電站(樁)資料 <https://tdx.transportdata.tw/ev-charging/evChargingData>（交通部運輸資料流通服務 TDX） |
+| 下載網址 | 見 `scripts/sources/vehicles.mjs` 中的 `NDC_VEHICLES_CSV` | `https://tdx.transportdata.tw/webapi/EVChargingData/Counts` |
+| 目前資料期 | 2024 年底（汽車、機車）；2024 全年（交通費用） | 2026 年即時統計 |
+| 涵蓋 | 22 縣市（含金門、連江） | 22 縣市及直轄市大眾捷運、公營機場事業 |
+| 指標 | `cars` 汽車登記數、`passenger_cars` 小客車登記數、`motorcycles` 機車登記數、`cars_per1000` 每千人汽車數、`passenger_cars_per1000` 每千人小客車數、`motorcycles_per1000` 每千人機車數、`transport_cost_per_household` 平均每戶全年交通費用 | `ev_charging_points` 公共充電樁數（支）、`ev_charging_stations` 公共充電站數（處）、`ev_charging_plugs` 公共充電槍數（槍）、`ev_charging_per10k_cars` 每萬輛汽車公共充電樁數（支／萬輛汽車）、`ev_charging_per100k_pop` 每十萬人公共充電樁數（支／十萬人） |
+| 驗證 | 全國汽車登記數約 860.6 萬輛、機車約 1,465.6 萬輛；全台地方公共充電樁逾 1.1 萬支（臺北市逾 1,840 支、高雄逾 1,660 支）。 |
+
+### 能源與太陽能：台電各縣市再生能源別購入情形
+
+| 項目 | 內容 |
+| --- | --- |
+| 資料集 | 台灣電力公司各縣市再生能源別購入情形 <https://data.gov.tw/dataset/29936>（台電公司公開資料） |
+| 下載網址 | `https://service.taipower.com.tw/data/opendata/apply/file/d007011/001.csv` |
+| 目前資料期 | 民國 114 年（2025 年累計躉購裝置容量與發電量） |
+| 涵蓋 | 22 縣市（含澎湖、金門、連江） |
+| 指標 | `solar_capacity` 太陽光電躉購裝置容量（千瓩／MW）、`solar_power` 太陽光電累計購電度數（百萬度）、`solar_count` 太陽光電案場件數（件）、`solar_capacity_per_capita` 每人太陽光電容量（瓦／人）、`renewable_capacity` 再生能源總裝置容量（千瓩／MW）、`renewable_power` 再生能源總購電度數（百萬度）、`solar_share` 太陽光電占再生能源比重（%） |
+| 歷年趨勢 | 提供 2016–2025 年歷年太陽光電及再生能源總裝置容量趨勢序列（`solar_capacity`、`renewable_capacity`）。 |
+| 驗證 | 臺南市太陽光電裝置容量逾 2,787 MW（全國第一）；彰化縣再生能源總裝置容量逾 4,616 MW（含離岸風電與太陽光電，全國第一）。 |
+
+### 環境保護與永續：國發會都市及區域發展統計彙編
+
+| 項目 | 內容 |
+| --- | --- |
+| 資料集 | 6-2-3 垃圾清運處理狀況 <https://data.gov.tw/dataset/6511>；6-2-5 污水處理率 <https://data.gov.tw/dataset/6513>；6-2-2 空氣污染之測定結果 <https://data.gov.tw/dataset/6510>（國發會彙編，源自環境部統計處、監測處與內政部國土管理署） |
+| 下載網址 | 見 `scripts/sources/environment.mjs` 中的各 NDC 下載連結（`ws.ndc.gov.tw/Download.ashx?...`） |
+| 目前資料期 | 2024 年（垃圾量、回收率、空氣品質 AQI 及 PM2.5）；2024 年底（污水處理率） |
+| 涵蓋 | 22 縣市（含金門、連江） |
+| 指標 | `waste_per_capita_daily` 平均每人每日垃圾產生量（公斤／人-日）、`recycling_rate` 垃圾回收率（%）、`waste_total` 垃圾產生總量（萬公噸）、`sewage_treatment_rate` 污水處理率合計（%）、`sewage_public_rate` 公共污水下水道普及率（%）、`air_pm25` 細懸浮微粒年均濃度（微克／立方公尺）、`air_aqi` 空氣品質指標年均值 |
+| 驗證 | 臺北市公共污水下水道普及率達 88.2%（處理率達 89.2%）；臺東縣 PM2.5 年均濃度約 6.6 微克／立方公尺（全國最佳）。 |
 
 ### 人口結構、出生死亡、人口動態：戶政司（kiang/data.moi.gov.tw 轉存）
 

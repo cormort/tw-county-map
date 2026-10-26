@@ -42,7 +42,7 @@ export const ELECTIONS: CountyElectionKey[] = ['president_2024', 'president_2020
 export const PREVIOUS: Partial<Record<CountyElectionKey, CountyElectionKey>> = { president_2024: 'president_2020', mayor_2022: 'mayor_2018' };
 export const PARTIES = ['民主進步黨', '中國國民黨', '台灣民眾黨'];
 /** 主題的顯示順序（指標選單的分組、搜尋篩選） */
-export const TOPICS = ['人口', '醫療', '教育', '房價', '經濟', '產業', '能源', '財政', '農業', '選舉', '自訂'];
+export const TOPICS = ['人口', '醫療', '教育', '房價', '經濟', '財政', '交通', '產業', '能源', '環境', '農業', '選舉', '自訂'];
 
 export const formatMetric = (m: Pick<Metric, 'unit' | 'digits'>, v: number | null) => fmt(v, m.unit, m.digits);
 export const formatterOf = (m: Pick<Metric, 'unit' | 'digits'>) => (v: number | null) => fmt(v, m.unit, m.digits);
@@ -79,7 +79,35 @@ function inferSubcategory(m: { category: string; label: string; key: string }): 
     return '企業與商業登記';
   }
   if (m.category === '教育') return m.label.includes('學齡兒童') ? '學童分佈' : '各級學校數';
-  if (m.category === '經濟') return m.label.includes('國保') || m.label.includes('國民年金') ? '國民年金' : '所得與就業環境';
+  if (m.category === '經濟') {
+    if (m.label.includes('綜稅') || m.label.includes('申報') || m.label.includes('所得總額')) return '綜合所得申報';
+    if (m.label.includes('國保') || m.label.includes('國民年金')) return '國民年金';
+    return '所得與就業環境';
+  }
+  if (m.category === '財政') {
+    if (m.label.includes('綜稅') || m.label.includes('所得稅')) return '國稅與綜所稅';
+    if (m.label.includes('地方稅') || m.label.includes('稅課')) return '地方稅收';
+    if (m.label.includes('債務') || m.label.includes('負債')) return '公共債務';
+    return '歲入與歲出決算';
+  }
+  if (m.category === '交通') {
+    if (m.label.includes('充電')) return '充電設施';
+    if (m.label.includes('機車')) return '機車登記';
+    if (m.label.includes('客車') || m.label.includes('汽車')) return '汽車登記';
+    if (m.label.includes('費用')) return '交通支出';
+    return '機動車輛';
+  }
+  if (m.category === '能源') {
+    if (m.label.includes('光電') || m.label.includes('太陽')) return '太陽光電';
+    if (m.label.includes('再生能源') || m.label.includes('綠能')) return '再生能源';
+    return '電力與用電';
+  }
+  if (m.category === '環境') {
+    if (m.label.includes('垃圾') || m.label.includes('回收') || m.label.includes('廚餘')) return '廢棄物與回收';
+    if (m.label.includes('污水') || m.label.includes('下水道')) return '水質與污水處理';
+    if (m.label.includes('空氣') || m.label.includes('懸浮微粒') || m.label.includes('AQI')) return '空氣品質';
+    return '環境品質';
+  }
   return m.category;
 }
 

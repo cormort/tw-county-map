@@ -13,6 +13,8 @@ import * as care from './care.mjs';
 import * as income from './income.mjs';
 import * as fiscal from './fiscal.mjs';
 import * as electricity from './electricity.mjs';
+import * as solar from './solar.mjs';
+import * as environment from './environment.mjs';
 import * as business from './business.mjs';
 import * as factories from './factories.mjs';
 import * as labor from './labor.mjs';
@@ -21,8 +23,10 @@ import * as healthInsurance from './health-insurance.mjs';
 import * as indigenous from './indigenous.mjs';
 import * as education from './education.mjs';
 import * as populationTrends from './population-trends.mjs';
+import * as taxIncome from './tax-income.mjs';
+import * as vehicles from './vehicles.mjs';
 
 export const sources = [
-  medical, housePrice, farmland, population, populationChange, care, income, fiscal, electricity,
-  business, factories, labor, pension, healthInsurance, indigenous, education, populationTrends,
+  medical, housePrice, farmland, population, populationChange, care, income, taxIncome, fiscal, electricity,
+  solar, environment, vehicles, business, factories, labor, pension, healthInsurance, indigenous, education, populationTrends,
 ];
