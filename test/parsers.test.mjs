@@ -27,6 +27,7 @@ import { sumEvCounts } from '../scripts/sources/vehicles.mjs';
 import { parseLocalTaxLines, parseLocalTaxTotal, decemberOf } from '../scripts/sources/local-tax.mjs';
 import { parseSpouseCsv } from '../scripts/lib/spouse.mjs';
 import { populationAt, yearEndPopulation } from '../scripts/lib/population-history.mjs';
+import { readState, strike, settle } from '../scripts/lib/alert-gate.mjs';
 import { sources } from '../scripts/sources/index.mjs';
 
 test('csvLine：雙引號裡有逗號', () => {
@@ -288,6 +289,46 @@ test('parseSpouseCsv：有資料的月份要讀到總計／外籍／大陸港澳
   const b = parseSpouseCsv(empty);
   assert.equal(b.hasData, false, '整月皆 "-" 要視為沒資料，不能當成 0');
   assert.deepEqual(b.byCounty, {});
+});
+
+test('alertGate：連續 3 次才通知、換了失敗清單就重新算、恢復只在吵過之後才講', () => {
+  const state = {};
+  const day = '2026-10-28';
+  // 同一個來源連續壞：前 2 次安靜，第 3 次才吵
+  assert.equal(strike(state, 'source', '工廠', 3, day).notify, false);
+  assert.equal(strike(state, 'source', '工廠', 3, day).notify, false);
+  const third = strike(state, 'source', '工廠', 3, day);
+  assert.equal(third.notify, true);
+  assert.equal(third.count, 3);
+  assert.equal(third.since, day, 'since 要記第一次發生的日期，不是今天的');
+  // 第 4 次照樣吵（已經壞了就別再裝沒事）
+  assert.equal(strike(state, 'source', '工廠', 3, day).notify, true);
+  // 換成另一個來源壞掉：從 1 重算
+  const other = strike(state, 'source', '人口', 3, day);
+  assert.equal(other.notify, false);
+  assert.equal(other.count, 1);
+  // 這時候 settle：先前只到 1 次、沒吵過 → 安靜收掉
+  assert.equal(settle(state, 'source', 3).recovered, false);
+  assert.equal(state.source, undefined);
+  // 真的吵過（連續 3 次）之後恢復 → 要講一次「恢復了」
+  for (let i = 0; i < 3; i++) strike(state, 'source', '工廠', 3, day);
+  assert.equal(settle(state, 'source', 3).recovered, true);
+  // 沒吵過就恢復 → 安靜
+  strike(state, 'anomaly', 'x', 3, day);
+  assert.equal(settle(state, 'anomaly', 3).recovered, false);
+  // 門檻可調
+  assert.equal(strike({}, 'stale', 'k', 1).notify, true);
+});
+
+test('alertGate 狀態檔壞掉時不拋錯（壞檔案不能讓整個更新流程掛掉）', async () => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'gate-'));
+  const bad = join(dir, 'bad.json');
+  await writeFile(bad, '{ 這不是 JSON');
+  assert.deepEqual(readState(bad), {});
+  assert.deepEqual(readState(join(dir, 'missing.json')), {});
 });
 
 test('populationAt：取指定月底的 22 縣市人口，找不到月份要拋錯', async () => {

@@ -105,22 +105,18 @@ if ! node scripts/county-stats.mjs; then
         notify "✅ county-stats.mjs 第一次失敗、重試後成功（資料已更新）"
     fi
 fi
-# 有來源改用快取時還是要更新（其他來源是新的），但不能安靜地當成全部都是新的
-STALE_LINE="$(grep -a '^\[stale\] [0-9]' "$LOG" 2>/dev/null | tail -1 || true)"
-if [[ -n "$STALE_LINE" ]]; then
-    notify "⚠️ 縣市統計有來源抓不到，已改用該來源的快取（其他來源照常更新）：${STALE_LINE#\[stale\] }"
+# 通知閘門：同一件事連續 N 次（預設 3）才吵（邏輯在 scripts/alert-check.sh，可單獨測）。
+# 理由：來源偶爾抖一下就每天發一則「某來源失敗」，看久了會麻木；真的壞掉第 3 天一定講。
+ALERT_OUT="$(scripts/alert-check.sh "$LOG" 2>/dev/null || true)"
+if [[ -n "$ALERT_OUT" ]]; then
+    while IFS= read -r line; do
+        case "$line" in
+            NOTIFY:*) notify "${line#NOTIFY: }" ;;
+            *)        echo "$line" ;;
+        esac
+    done <<< "$ALERT_OUT"
 fi
-# 來源整個壞掉時指標不會消失（runner 沿用上一版），但一定要講是哪一個
-FAILED="$(grep -a '失敗：' "$LOG" 2>/dev/null | sed 's/^\[source\] //' | tr '\n' '、' || true)"
-CARRIED_LINE="$(grep -a '^\[carried\] [0-9]' "$LOG" 2>/dev/null | tail -1 || true)"
-if [[ -n "$FAILED" ]]; then
-    notify "⚠️ 縣市統計有來源失敗：${FAILED%、}${CARRIED_LINE:+（${CARRIED_LINE#\[carried\] }）}。其他來源照常更新，紀錄：$LOG"
-fi
-# 數值變動異常＝上游改了單位或格式，已自動沿用上一版（不要讓可疑數字上線）
-ANOMALY_LINE="$(grep -a '^\[anomaly\] [0-9]' "$LOG" 2>/dev/null | tail -1 || true)"
-if [[ -n "$ANOMALY_LINE" ]]; then
-    notify "⚠️ 縣市統計有指標數值變動異常，已沿用上一版：${ANOMALY_LINE#\[anomaly\] }。請看一下是不是上游改了單位。紀錄：$LOG"
-fi
+
 
 # 解析器測試：紅了不代表資料壞，但代表上游格式變了 —— 要讓我知道，不要安靜地過去
 if ! npm test --silent >/dev/null 2>&1; then
