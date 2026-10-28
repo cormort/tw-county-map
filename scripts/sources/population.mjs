@@ -10,6 +10,7 @@
 import { COUNTIES, monthsBack, round } from '../lib/county.mjs';
 import { fetchRetry } from '../lib/fetch-cache.mjs';
 import { villageCsv } from '../lib/moi.mjs';
+import { parseSpouseCsv } from '../lib/spouse.mjs';
 
 export const id = 'population';
 export const name = '人口結構（戶政司村里＋移民署新住民）';
@@ -95,22 +96,25 @@ export async function collect({ items, fields }) {
     items[c].death_rate = perMille(vital[c].deaths, total(c));
   }
 
-  // 新住民（外籍配偶＋大陸港澳配偶，累計人數）：內政部統計查詢網，查本月會回最新一個月（通常落後兩個月）
-  const now = new Date();
-  const rocYm = `${now.getUTCFullYear() - 1911}${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-  const spouseCsv = await (await fetchRetry(`https://statis.moi.gov.tw/micst/webMain.aspx?sys=220&kind=21&type=1&funid=c0930301&cycle=41&outmode=12&utf=1&compmode=0&outkind=3&fldspc=0,12,&codspc0=0,2,3,2,6,1,9,1,12,1,15,17,&codlst1=111&ym=${rocYm}&ymt=${rocYm}`)).text();
+  // 新住民（外籍配偶＋大陸港澳配偶，累計人數）：內政部統計查詢網。
+  // 上游通常落後兩個月，而且**當月未發布時會回一列全是 "-" 的空殼**（實測 115年9月整月皆 "-"），
+  // 所以這裡往回試最多 4 個月，只採用真的有數字的那個月；全空就丟錯讓上層沿用上一版。
+  let spouse = { hasData: false, byCounty: {}, period: null };
   let spousePeriod = '';
-  for (const line of spouseCsv.split(/\r?\n/)) {
-    // "115年 (8~8月)/ 新北市/ 性別總計",總計,外籍配偶,越南,…,大陸配偶,港澳配偶
-    const m = line.match(/^"(\d+)年 \((\d+)~\d+月\)\/ (\S+)\/ 性別總計",(.*)$/);
-    if (!m || !items[m[3]]) continue;
-    spousePeriod = `${Number(m[1]) + 1911}-${m[2].padStart(2, '0')}`;
-    const v = m[4].split(',').map((x) => (x === '-' ? 0 : Number(x)));
-    items[m[3]].new_residents = v[0];
-    items[m[3]].foreign_spouses = v[1];
-    items[m[3]].mainland_spouses = v[10] + v[11];
+  for (let n = 0; n < 4 && !spouse.hasData; n++) {
+    const ym = monthsBack(n).replace('/', '');
+    const rocYm = `${Number(ym.slice(0, 4)) - 1911}${ym.slice(4)}`;
+    const text = await (await fetchRetry(`https://statis.moi.gov.tw/micst/webMain.aspx?sys=220&kind=21&type=1&funid=c0930301&cycle=41&outmode=12&utf=1&compmode=0&outkind=3&fldspc=0,12,&codspc0=0,2,3,2,6,1,9,1,12,1,15,17,&codlst1=111&ym=${rocYm}&ymt=${rocYm}`)).text();
+    spouse = parseSpouseCsv(text);
+    if (spouse.hasData) spousePeriod = spouse.period;
   }
-  if (!spousePeriod) throw new Error('新住民資料格式變了，讀不到縣市列');
+  if (!spouse.hasData) throw new Error('新住民資料連續 4 個月都是空的（上游未發布或格式變了）');
+  for (const [county, v] of Object.entries(spouse.byCounty)) {
+    if (!items[county]) continue;
+    if (v.total !== null) items[county].new_residents = v.total;
+    if (v.foreign !== null) items[county].foreign_spouses = v.foreign;
+    if (v.mainland !== null) items[county].mainland_spouses = v.mainland;
+  }
   const nr = { category: '人口', period: `${spousePeriod} 累計`, source: '內政部移民署外籍與大陸港澳配偶人數', url: 'https://data.gov.tw/dataset/13503' };
   fields.push(
     { key: 'new_residents', label: '新住民（外籍＋大陸港澳配偶）', unit: '人', ...nr },

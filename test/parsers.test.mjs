@@ -25,6 +25,7 @@ import { parseFactoryRows } from '../scripts/sources/factories.mjs';
 import { indigenousLineOf } from '../scripts/sources/indigenous.mjs';
 import { sumEvCounts } from '../scripts/sources/vehicles.mjs';
 import { parseLocalTaxLines, parseLocalTaxTotal, decemberOf } from '../scripts/sources/local-tax.mjs';
+import { parseSpouseCsv } from '../scripts/lib/spouse.mjs';
 import { populationAt, yearEndPopulation } from '../scripts/lib/population-history.mjs';
 import { sources } from '../scripts/sources/index.mjs';
 
@@ -260,6 +261,33 @@ test('parseLocalTaxLines：取「本年度累計」第 4 個數字，千元換�
   assert.equal(decemberOf(lines), 114);
   assert.deepEqual(parseLocalTaxLines(lines), { '臺北市': 77655, '連江縣': 51 });
   assert.equal(parseLocalTaxTotal(lines), 375959);
+});
+
+test('parseSpouseCsv：有資料的月份要讀到總計／外籍／大陸港澳；空殼月份要回 hasData=false', () => {
+  // 115年8月（有資料）：欄位＝總計, 外籍配偶, 越南, 印尼, 泰國, 菲律賓, 柬埔寨, 日本, 韓國, 其他, 大陸配偶, 港澳配偶
+  const real = [
+    '"外籍配偶人數","總計","外籍配偶","越南","印尼","泰國","菲律賓","柬埔寨","日本","韓國","其他","大陸配偶","港澳配偶"',
+    '"115年 (8~8月)/ 區域別總計/ 性別總計",-,-,-,-,-,-,-,-,-,-,-,-',
+    '"115年 (8~8月)/ 新北市/ 性別總計",1000,400,200,50,30,20,10,20,10,60,550,50',
+    '"115年 (8~8月)/ 連江縣/ 性別總計",70,10,5,1,-,1,-,1,-,2,55,5',
+    '"115年 (8~8月)/ 新北市/ 男",500,200,100,25,15,10,5,10,5,30,275,25',
+  ].join('\n');
+  const a = parseSpouseCsv(real);
+  assert.equal(a.hasData, true);
+  assert.equal(a.period, '2026-08');
+  assert.deepEqual(a.byCounty['新北市'], { total: 1000, foreign: 400, mainland: 600 });
+  assert.deepEqual(a.byCounty['連江縣'], { total: 70, foreign: 10, mainland: 60 }, '"-" 要當 0 而不是 NaN');
+  assert.equal(a.byCounty['區域別總計'], undefined, '總計列不算縣市');
+
+  // 115年9月：上游回了整月都是 "-" 的空殼（實測 2026-10-28 就是這樣）
+  const empty = [
+    '"外籍配偶人數","總計","外籍配偶","越南","印尼","泰國","菲律賓","柬埔寨","日本","韓國","其他","大陸配偶","港澳配偶"',
+    '"115年 (9~9月)/ 新北市/ 性別總計",-,-,-,-,-,-,-,-,-,-,-,-',
+    '"115年 (9~9月)/ 臺北市/ 性別總計",-,-,-,-,-,-,-,-,-,-,-,-',
+  ].join('\n');
+  const b = parseSpouseCsv(empty);
+  assert.equal(b.hasData, false, '整月皆 "-" 要視為沒資料，不能當成 0');
+  assert.deepEqual(b.byCounty, {});
 });
 
 test('populationAt：取指定月底的 22 縣市人口，找不到月份要拋錯', async () => {
