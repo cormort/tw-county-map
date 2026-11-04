@@ -1,8 +1,11 @@
-import { useContext, useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
 import { Download, Upload } from 'lucide-react';
-import type { CountiesResponse, CountyElection, CountyItem, CountyStatsResponse } from '../api/types';
+import { buildUrl } from '../api/client';
+import type { CountiesResponse, CountyElection, CountyItem, CountyStatsResponse, DemographicsResponse, PopulationTrendResponse } from '../api/types';
 import { ChoroplethMap } from '../components/ChoroplethMap';
 import { CustomData } from '../components/CustomData';
+import { LoadingState } from '../components/DataStates';
+import { useApi } from '../hooks/useApi';
 import { MetricPicker } from '../components/MetricPicker';
 import { PartyTag } from '../components/PartyTag';
 import { Tip, noteText } from '../components/Tip';
@@ -13,6 +16,7 @@ import { num, numOrDash, perArea, ratio, RATE_UNIT, isRate } from '../lib/format
 import { formatMetric, formatterOf, valuesOf, type Metric } from '../lib/metrics';
 import { noteFor } from '../lib/metricNotes';
 import { partyStyle } from '../lib/parties';
+import { hasTownData, rankTowns } from '../lib/townRanking';
 import { SubTabs, type View, type ViewContext } from './shared';
 import { REGIONS } from '../components/CountyOptions';
 import { RegionContext, RegionFirstContext } from '../lib/regionZoom';
@@ -132,7 +136,11 @@ export function MapView({ data, metrics, current, onSelect, goView, custom }: Vi
               } : undefined}
             />
           ) : mode === 'ranking' ? (
-            <Ranking metric={metric} items={items} focus={focus} onSelect={onSelect} />
+            focus && hasTownData(metric.key) ? (
+              <TownRanking metric={metric} county={focus} goView={goView} items={items} focus={focus} onSelect={onSelect} />
+            ) : (
+              <Ranking metric={metric} items={items} focus={focus} onSelect={onSelect} countyNote={Boolean(focus)} />
+            )
           ) : (
             <DataTable data={{ ...data, items }} metrics={metrics} metric={metric} focus={focus} onSelect={onSelect} />
           )}
@@ -230,7 +238,7 @@ function Stats({ metric, items, region }: { metric: Metric; items: CountyItem[];
   );
 }
 
-function Ranking({ metric, items, focus, onSelect }: { metric: Metric; items: CountyItem[]; focus?: string; onSelect: (county: string) => void }) {
+function Ranking({ metric, items, focus, onSelect, countyNote }: { metric: Metric; items: CountyItem[]; focus?: string; onSelect: (county: string) => void; countyNote?: boolean }) {
   const [top, setTop] = useParam<string>('top', '全部', TOP_N);
   const all = valuesOf(metric, items).sort((a, b) => b.v - a.v);
   const rows = top === '全部' ? all : all.slice(0, Number(top));
@@ -258,6 +266,61 @@ function Ranking({ metric, items, focus, onSelect }: { metric: Metric; items: Co
         ))}
       </ol>
       {!metric.partyOf ? <p className="muted">長條長度以平方根縮放，避免極端值讓小縣市的長條看不見。※ 人口不到 20 萬的縣市。</p> : null}
+      {countyNote ? <p className="muted">這個指標只有縣市層級資料，排行仍是 22 個縣市（可排到鄉鎮市區的是人口、密度、老年比率與總統得票）。</p> : null}
+    </>
+  );
+}
+
+/**
+ * 排行改排鄉鎮市區：視角選了縣市、而且這個指標有鄉鎮資料時（人口數、人口密度、老年人口比率、總統得票）。
+ * 資料與「人口與鄉鎮」分頁同一份（/demographics、/population-trend），只取該縣市的鄉鎮。
+ */
+function TownRanking({ metric, county, goView, items, focus, onSelect }: {
+  metric: Metric; county: string; goView: (view: View, sub?: string) => void;
+  items: CountyItem[]; focus?: string; onSelect: (county: string) => void;
+}) {
+  const demo = useApi<DemographicsResponse>(buildUrl('/demographics'));
+  const trend = useApi<PopulationTrendResponse>(buildUrl('/population-trend'));
+  const rows = useMemo(() => {
+    if (!demo.data || !trend.data) return [];
+    const sizes = new Map(trend.data.towns.map((t) => [t.county + t.town, t.size]));
+    return rankTowns(metric, demo.data.towns.filter((t) => t.county === county), sizes);
+  }, [demo.data, trend.data, metric, county]);
+
+  // 鄉鎮資料抓不到：退回縣市排行，不要讓排行空白
+  if (demo.phase === 'error' || trend.phase === 'error') {
+    return (
+      <>
+        <p className="muted">鄉鎮市區資料載入失敗，先顯示縣市排行。</p>
+        <Ranking metric={metric} items={items} focus={focus} onSelect={onSelect} />
+      </>
+    );
+  }
+  if (!demo.data || !trend.data) return <LoadingState label="載入鄉鎮市區排行…" />;
+  // 該縣市查不到鄉鎮（資料缺漏）：一樣退回縣市排行
+  if (!rows.length) return <Ranking metric={metric} items={items} focus={focus} onSelect={onSelect} countyNote={false} />;
+
+  const max = Math.max(...rows.map((r) => Math.abs(r.v)), 0) || 1;
+  const min = Math.min(...rows.map((r) => r.v), 0);
+  return (
+    <>
+      <div className="sectionhead">
+        <h2>{metric.label}排行（{county} {rows.length} 個鄉鎮市區）</h2>
+        <button type="button" className="link-button" onClick={() => goView('population', 'towns')}>鄉鎮地圖 →</button>
+      </div>
+      <ol className="stat-ranking" aria-label={`${county}${metric.label}排行`}>
+        {rows.map((r, i) => (
+          <li key={r.key}>
+            <span className="muted">{i + 1}</span>
+            <span>{r.town}</span>
+            <span className="stat-bar" aria-hidden="true">
+              <i style={{ width: `${Math.max(4, Math.sqrt(Math.max(r.v, 0) / max) * 100)}%`, background: colorAt('Viridis', max === min ? 1 : (r.v - min) / (max - min)) }} />
+            </span>
+            <span className="stat-bar-value">{formatMetric(metric, r.v)}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="muted">鄉鎮市區層級只有人口、年齡結構與選舉資料；醫療、房價、農業、財政等仍是 22 個縣市的排行。長條長度以平方根縮放。</p>
     </>
   );
 }
