@@ -12,7 +12,11 @@ export const dependsOn = ['population'];
 
 export async function collect({ items, fields, shared }) {
   const { ages, elderlyOf, perMille, sumAll } = shared.population;
-  const ltcCsv = await (await fetchRetry('https://ltcpap.mohw.gov.tw/publish/abc.csv')).text();
+  // 2026-11 起 /publish/abc.csv 回 404（HTML 錯誤頁）且 data.gov.tw 中介資料還指著舊網址；
+  // requireOk 讓 404 走「重試 → 用 11/04 的快取」並標進 meta.stale_sources，而不是解析錯誤頁得到 0。
+  const res = await fetchRetry('https://ltcpap.mohw.gov.tw/publish/abc.csv', { requireOk: true });
+  const ltcCsv = await res.text();
+  if (!ltcCsv.includes('機構代碼')) throw new Error('回應不是 ABC 據點 CSV（錯誤頁或格式改了）');
   const ltc = Object.fromEntries(COUNTIES.map((c) => [c, new Set()]));
   for (const line of ltcCsv.split(/\r?\n/).slice(1)) {
     // "機構名稱","機構代碼","機構種類","縣市代碼",…,"O_ABC"：同一機構每個特約服務各一列，用機構代碼去重。

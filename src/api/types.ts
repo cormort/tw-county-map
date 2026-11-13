@@ -118,7 +118,7 @@ export interface CountyStatsResponse {
   meta: {
     generated_at: string;
     /** 每個來源這一次的結果：ok／failed（runner 寫入） */
-    sources?: { id: string; name: string; status: 'ok' | 'failed'; error?: string }[];
+    sources?: { id: string; name: string; status: 'ok' | 'failed' | 'skipped'; error?: string }[];
     /** 連不上、改用該網址上次成功的內容 */
     stale_sources?: { host: string; cached_at: string; url: string }[];
     /** 整個模組失敗、沿用上一版 JSON 的指標 */

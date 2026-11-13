@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
  * 驗收用的鉤子：`COUNTY_STATS_FAIL_HOST=stats.moe.gov.tw node scripts/county-stats.mjs`
  * 會假裝那個主機連不上，用來確認「只有它改用快取、其他來源照常」這條路（正式排程不會設）。
  */
-export async function fetchRetry(url, { retries = 3, timeoutMs = 30_000, label = '' } = {}) {
+export async function fetchRetry(url, { retries = 3, timeoutMs = 30_000, label = '', requireOk = false } = {}) {
   let lastError;
   // 除錯／驗收用：假裝某個主機連不上，驗「改用快取」這條路（正式排程不會設）
   const failHost = process.env.COUNTY_STATS_FAIL_HOST ?? '';
@@ -35,6 +35,10 @@ export async function fetchRetry(url, { retries = 3, timeoutMs = 30_000, label =
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      // 有的站台把「檔案下架」回成 404 的 HTML 錯誤頁：res.ok 是 false，但呼叫端照樣把它當 CSV
+      // 解析，結果是整欄變 0（長照 ABC 據點 2026-11 就是這個情況，靠數值異常偵測才沒上線）。
+      // requireOk 讓這種回應走「重試 → 快取」的正常失敗路徑。
+      if (requireOk && !res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { cause: { code: `HTTP ${res.status}` } });
       if (res.ok) await writeCache(url, Buffer.from(await res.clone().arrayBuffer()));
       return res;
     } catch (error) {

@@ -46,8 +46,20 @@ function orderOf(list) {
 }
 
 const statuses = [];
+const failed = new Set();
 for (const source of orderOf(sources)) {
   const t0 = Date.now();
+  // 相依的來源失敗就整個略過（status: skipped）：log 只留一個「真正的原因」。
+  // 以前這裡照跑，16 個下游各自 destructure undefined，真正的原因被洗掉，
+  // 通知也會變成一長串看起來像 16 個來源壞掉。
+  const blockers = (source.dependsOn ?? []).filter((dep) => failed.has(dep));
+  if (blockers.length) {
+    const message = `上游 ${blockers.join('、')} 失敗，未執行`;
+    console.error(`[source] ${source.name} 略過：${message}`);
+    statuses.push({ id: source.id, name: source.name, status: 'skipped', error: message });
+    failed.add(source.id);
+    continue;
+  }
   try {
     if (process.env.COUNTY_STATS_FAIL_SOURCE === source.id) throw new Error('（驗證用）模擬來源失敗');
     const result = (await source.collect(ctx)) ?? {};
@@ -59,6 +71,7 @@ for (const source of orderOf(sources)) {
     const message = String(error?.message ?? error);
     console.error(`[source] ${source.name} 失敗：${message}`);
     statuses.push({ id: source.id, name: source.name, status: 'failed', error: message });
+    failed.add(source.id);
   }
 }
 if (!fields.length) throw new Error('沒有任何來源成功，保留舊檔不寫入');

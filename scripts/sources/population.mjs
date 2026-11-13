@@ -67,16 +67,29 @@ export async function collect({ items, fields }) {
     }
   }
 
-  // 出生、死亡：最近 12 個月的村里月資料加總（跟人口同一個迄月）
+  // 出生、死亡：連續 12 個月的村里月資料加總。
+  // 上游（戶政司 → kiang 轉檔）的出生死亡通常比單一年齡人口晚 1～2 個月發布：
+  // 實測 2026/10 的 population 已經有、bdmd 還是 404。所以最後一個月還沒出來時
+  // **往後退一個月**找「連續 12 個月」，不要為此讓整個人口來源失敗——它一失敗，
+  // 17 個 dependsOn 它的模組全部停擺（只留一行看不出因果的 destructure 錯誤）。
+  // 分母仍是迄月人口（total(c)），與分子差一個月，量級在千分之零點幾以內（見下方 birth_rate 註解）。
   const vital = Object.fromEntries(COUNTIES.map((c) => [c, { births: 0, deaths: 0 }]));
   const popBack = (12 * (new Date().getUTCFullYear() - Number(popYm.slice(0, 4))) + new Date().getUTCMonth() + 1 - Number(popYm.slice(5)));
   const vitalMonths = [];
-  for (let n = popBack; n < popBack + 12; n++) {
-    const m = await villageCsv('bdmd', monthsBack(n));
-    if (!m) throw new Error(`缺 ${monthsBack(n)} 的出生死亡資料`);
-    vitalMonths.push(monthsBack(n));
-    for (const c of COUNTIES) { vital[c].births += m[c]['出生數']; vital[c].deaths += m[c]['死亡數']; }
+  let vitalFound = false;
+  for (let shift = 0; shift <= 3 && !vitalFound; shift++) {
+    const months = [];
+    for (let n = popBack + shift; n < popBack + shift + 12; n++) {
+      const m = await villageCsv('bdmd', monthsBack(n));
+      if (!m) break; // 這個迄月之前不連續，換更早的迄月再試
+      months.push([monthsBack(n), m]);
+    }
+    if (months.length < 12) continue;
+    for (const [, m] of months) for (const c of COUNTIES) { vital[c].births += m[c]['出生數']; vital[c].deaths += m[c]['死亡數']; }
+    vitalMonths.push(...months.map(([ym]) => ym));
+    vitalFound = true;
   }
+  if (!vitalFound) throw new Error('近 4 個月內找不到連續 12 個月的出生死亡資料');
   const bd = { category: '人口', period: `${vitalMonths.at(-1).replace('/', '-')}～${vitalMonths[0].replace('/', '-')}（近 12 個月）`, source: '內政部戶政司村里出生死亡結婚離婚', url: 'https://github.com/kiang/data.moi.gov.tw' };
   const sumOf = (k) => COUNTIES.reduce((s, c) => s + vital[c][k], 0);
   const perMille = (n, p) => round((n / p) * 1000, 2);
