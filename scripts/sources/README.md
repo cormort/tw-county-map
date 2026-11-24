@@ -65,7 +65,7 @@ export async function collect(ctx) {
 | `business` | 公司、商業登記 | population |
 | `factories` | 產發署登記工廠名錄（zip） | population |
 | `labor` | 勞保投保人數 | population |
-| `pension` | 國民年金被保險人數（每月 PDF） | population |
+| `pension` | 國民年金被保險人數（勞保局統計月報 CSV；監理會 PDF 為備援） | population |
 | `health-insurance` | 健保參加人數、參加率 | population |
 | `indigenous` | 原住民族人口（470 萬列串流） | population |
 | `education` | 教育部各級學校名錄＋每所國小學齡人口 | population |

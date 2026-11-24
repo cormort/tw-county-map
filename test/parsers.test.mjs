@@ -15,7 +15,7 @@ import { parseVillageCsv } from '../scripts/lib/moi.mjs';
 import { tableFromLines } from '../scripts/sources/medical.mjs';
 import { parseSchoolRows } from '../scripts/sources/education.mjs';
 import { parseElecRows } from '../scripts/sources/electricity.mjs';
-import { parseNpRows } from '../scripts/sources/pension.mjs';
+import { parseNpCsv, parseNpRows } from '../scripts/sources/pension.mjs';
 import { parseGcisRows } from '../scripts/sources/business.mjs';
 import { parseNdcCsv, parseDebtRows } from '../scripts/sources/fiscal.mjs';
 import { parseNhiRows } from '../scripts/sources/health-insurance.mjs';
@@ -111,6 +111,25 @@ test('parseSchoolRows：一個檔多學年度只算最新那年、台→臺', ()
   assert.equal(out['連江縣'], 1);
   assert.equal(out['新北市'], 0);
   assert.throws(() => parseSchoolRows([['學年度', '學校名稱']]), /縣市名稱/);
+});
+
+test('parseNpCsv：勞保局月報 CSV（全形空白縣市名、千分位、總計）', () => {
+  const csv = [
+    ',,"國民年金被保險人數—按身分別及地區分",,,,,',
+    ',,,,,"中華民國115年 8月",,,"單位：人"',
+    '"地 區 別",,,,,',
+    '"總　　　　　計","2,907,975","53,610"',
+    '"新　 北　 市","521,838","6,268"',
+    '"臺　 北　 市","344,021","6,827"',
+    '"連　 江　 縣",1256,12',
+  ].join('\r\n');
+  const { counties, total } = parseNpCsv(csv);
+  assert.equal(counties['新北市'], 521838);
+  assert.equal(counties['臺北市'], 344021);
+  assert.equal(counties['連江縣'], 1256);
+  assert.equal(total, 2907975);
+  assert.equal(Object.keys(counties).length, 3);
+  assert.throws(() => parseNpCsv('不是這個報表'), /表頭/);
 });
 
 test('parseNpRows：PDF 的 CJK 相容字要 NFKC 正規化', () => {
